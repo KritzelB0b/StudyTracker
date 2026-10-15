@@ -378,5 +378,7 @@ function readerRender(){
  }}
 async function readerLoad(){try{const r=await fetch('https://studytracker-api-production-7134.up.railway.app/public/view',{cache:'no-store'});if(!r.ok)throw Error('Keine öffentlichen Freigaben ('+r.status+')');readerData=await r.json();document.getElementById('readerStatus').textContent='Freigegebener Studienfortschritt · schreibgeschützt'}catch(e){readerData={fields:[]};document.getElementById('readerStatus').textContent=e.message}readerRender()}
 readerLoad();
+// Allow visitors to leave the login tab without authenticating.
+const returnButton=document.createElement('button');returnButton.type='button';returnButton.className='secondary';returnButton.textContent='← Zur öffentlichen Ansicht';returnButton.onclick=()=>{document.body.classList.remove('reader-login');readerTab='dashboard';readerRender()};const settingsSection=document.getElementById('settings');if(settingsSection){settingsSection.insertBefore(returnButton,settingsSection.firstChild)}
 
 </script></body></html>
