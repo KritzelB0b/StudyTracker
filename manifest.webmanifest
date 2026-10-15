@@ -5,7 +5,7 @@
   "display": "standalone",
   "background_color": "#0b1020",
   "theme_color": "#111827",
-  "description": "Privater Studien- und Lerntracker",
+  "description": "Öffentliche Lernstatistiken – Bearbeitung nur nach Anmeldung",
   "icons": [
     {
       "src": "./icon.svg",
