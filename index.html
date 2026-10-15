@@ -365,7 +365,7 @@ document.querySelectorAll('[data-tab="settings"]').forEach(el=>el.addEventListen
 
 /* Public view: only /public/view may supply visitor data. Never reuse db for public rendering. */
 let readerData=null,readerTab='dashboard',readerWeek=0;
-const readerTabs=[['dashboard','◫ Dashboard'],['modules','▦ Module & Themen'],['calendar','▦ Studienplan'],['planner','▤ Wochenplan & Aufgaben'],['cockpit','◷ Lernprotokoll'],['settings','⚙ Daten & Einstellungen']];
+const readerTabs=[['dashboard','◫ Dashboard'],['modules','▦ Module & Themen'],['calendar','▦ Studienplan'],['planner','▤ Wochenplan & Aufgaben'],['cockpit','◷ Lerncopilot'],['settings','⚙ Daten & Einstellungen']];
 const readerKinds=[['lecture','Vorlesung'],['exercise','Übung'],['tutor','Tutorium'],['practical','Praktikum'],['coaching','Coaching'],['exam','Prüfung'],['task','Aufgabe'],['study','Lernblock']];
 let readerFilters=new Set(readerKinds.map(x=>x[0]));
 const readerText=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','"':'&quot;'}[c]));
