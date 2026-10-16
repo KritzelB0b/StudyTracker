@@ -194,7 +194,7 @@ window.addEventListener('online',()=>{if(cloudActive)cloudChanged()});
 // A token remains only during this tab session. Explicit direction choice required after reload.
 if(cloudToken){cloudRequest('/sync').then(r=>{accessGate(true);cloudRevision=r.revision;cloudStatus('Angemeldet – bitte Hochladen oder Herunterladen wählen. Cloud Revision '+r.revision)}).catch(e=>{cloudStatus('Cloud nicht erreichbar: '+e.message);accessGate(false)})}
 cloudView();
-if('serviceWorker' in navigator && location.protocol==='https:')Promise.resolve();
+if('serviceWorker' in navigator && location.protocol==='https:')navigator.serviceWorker.register('./sw.js').catch(()=>{});
 
 
 // StudyTracker 1.3: handbook and plan are bundled source-data; no PDFs are published.
