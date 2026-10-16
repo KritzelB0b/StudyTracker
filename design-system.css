@@ -289,3 +289,14 @@ a:not(.primary):not(.secondary):not(.tab){accent-color:var(--st-orange)}
  .st-cloud-folders .st-folder-name{flex:1}
  .st-floating-file-menu{max-width:calc(100vw - 20px)}
 }
+
+/* Optional one-time import from the isolated development document store. */
+.st-migration{margin-top:20px;background:#211f1d;border:1px solid #595047;border-radius:13px;padding:13px 16px}
+.st-migration>summary{cursor:pointer;color:#edc9a7;font-size:13px;font-weight:650;min-height:32px;display:flex;align-items:center;gap:9px}
+.st-migration>summary::marker{color:#e97812}
+.st-migration .st-migration-form{display:flex;gap:9px;flex-wrap:wrap;align-items:end;margin:12px 0}
+.st-migration .st-migration-form>.field{flex:1 1 230px}
+.st-migration input{width:100%;border:1px solid #786b5c;border-radius:9px;padding:11px;background:#181817;color:#fff}
+.st-migration button{min-height:44px}
+.st-migration-status{margin-top:10px;color:#e4d7c7;font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+@media(max-width:650px){.st-migration{padding:13px}.st-migration .st-migration-form{display:grid;grid-template-columns:1fr}.st-migration button{width:100%}}
