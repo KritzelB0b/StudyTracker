@@ -1,17 +1,17 @@
 {
-  "name": "StudyTracker",
+  "name": "Jessys Maschinenbau Studium – StudyTracker",
   "short_name": "StudyTracker",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#0b1020",
-  "theme_color": "#111827",
-  "description": "Öffentliche Lernstatistiken – Bearbeitung nur nach Anmeldung",
+  "background_color": "#111110",
+  "theme_color": "#e97812",
+  "description": "Jessys privater Lerntracker mit öffentlichen Lernstatistiken und persönlichen Dokumenten",
   "icons": [
     {
-      "src": "./icon.svg",
+      "src": "./brand-mascot.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ]
 }
