@@ -1,4 +1,4 @@
-import {openCloudPdf} from './pdf-reader.js';
+import {openCloudPdf} from './pdf-reader.js?v=6';
 const API='https://studytracker-api-production-7134.up.railway.app';
 const $=id=>document.getElementById(id);
 const token=()=>sessionStorage.getItem('studytracker_cloud_token')||'';
@@ -7,7 +7,7 @@ let folder=null,folders=[],files=[],dialogAction=null;
 const notice=message=>{$('cloudFilesStatus').textContent=message};
 const button=(label,fn,variant='secondary')=>{const b=document.createElement('button');b.type='button';b.className=variant;b.textContent=label;b.addEventListener('click',fn);return b};
 async function request(path,options={}){
- if(!enabled())throw Error('Bitte zuerst unter „Daten & Einstellungen“ anmelden.');
+ if(!enabled())throw Error('Bitte zuerst im privaten Cloud-Dateispeicher anmelden.');
  const headers={Authorization:'Bearer '+token(),...(options.headers||{})};
  const response=await fetch(API+path,{...options,headers,cache:'no-store'});
  if(!response.ok){
@@ -26,7 +26,7 @@ function fullPath(id){
  return ['Hauptordner',...names].join(' / ');
 }
 async function refresh(){
- if(!enabled())return notice('Bitte zuerst unter „Daten & Einstellungen“ anmelden.');
+ if(!enabled())return notice('Bitte im privaten Cloud-Dateispeicher anmelden.');
  try{
   const [fr,dr]=await Promise.all([
    request('/private/folders'),
@@ -188,13 +188,44 @@ async function removeFolder(item){
  try{await request('/private/folders/'+encodeURIComponent(item.id),{method:'DELETE'});if(folder===item.id)folder=null;await refresh()}
  catch(e){notice(e.message)}
 }
-async function upload(){
- const file=$('cloudFileInput').files?.[0];if(!file)return notice('Bitte eine Datei auswählen.');
- if(file.size>20*1048576)return notice('Maximal 20 MB pro Datei.');
- const params=new URLSearchParams({filename:file.name});if(folder)params.set('folder_id',folder);
- try{notice('Datei wird hochgeladen …');await request('/private/documents?'+params,{method:'POST',headers:{'Content-Type':file.type||'application/octet-stream'},body:file});$('cloudFileInput').value='';await refresh()}
- catch(e){notice('Upload fehlgeschlagen: '+e.message)}
+let activeUpload=null;
+function setUploadProgress(value,message,visible=true){
+ const bar=$('cloudUploadProgressBar'),region=$('cloudUploadProgress');
+ if(region)region.hidden=!visible;
+ if(bar){bar.style.width=value+'%';bar.setAttribute('aria-valuenow',String(Math.round(value)));}
+ if(message)notice(message);
+ $('cloudUploadCancel').hidden=!visible;
 }
+function upload(){
+ const file=$('cloudFileInput').files?.[0];
+ if(!file)return notice('Bitte eine Datei auswählen.');
+ if(!enabled())return notice('Bitte zuerst im privaten Cloud-Dateispeicher anmelden.');
+ const max=125*1048576;
+ if(file.size>max)return notice('Datei zu groß: Maximal 125 MB pro Datei in der Cloud.');
+ if(activeUpload)return notice('Bitte den laufenden Upload zuerst abschließen.');
+ const params=new URLSearchParams({filename:file.name});if(folder)params.set('folder_id',folder);
+ const xhr=new XMLHttpRequest();activeUpload=xhr;
+ xhr.open('POST',API+'/private/documents?'+params);
+ xhr.setRequestHeader('Authorization','Bearer '+token());
+ xhr.setRequestHeader('Content-Type',file.type||'application/octet-stream');
+ $('cloudFileUpload').disabled=true;
+ const totalMB=(file.size/1048576).toLocaleString('de-DE',{maximumFractionDigits:1});
+ setUploadProgress(0,'Upload vorbereitet: '+file.name+' ('+totalMB+' MB)');
+ xhr.upload.onprogress=event=>{
+  if(!event.lengthComputable)return;
+  const percent=Math.min(100,Math.round(event.loaded/event.total*100));
+  setUploadProgress(percent,percent+' % übertragen · '+file.name+(percent===100?' · Server speichert die Datei …':''));
+ };
+ xhr.onerror=()=>finish(false,'Netzwerkfehler beim Upload. Bitte erneut versuchen.');
+ xhr.onabort=()=>finish(false,'Upload abgebrochen.');
+ xhr.onload=async()=>{
+  if(xhr.status>=200&&xhr.status<300){finish(true,'Datei hochgeladen: '+file.name);$('cloudFileInput').value='';await refresh()}
+  else{let message='HTTP '+xhr.status;try{message=JSON.parse(xhr.responseText).detail||message}catch{}finish(false,'Upload fehlgeschlagen: '+message)}
+ };
+ function finish(success,message){if(activeUpload!==xhr)return;activeUpload=null;$('cloudFileUpload').disabled=false;setUploadProgress(success?100:0,message,false)}
+ xhr.send(file);
+}
+$('cloudUploadCancel').addEventListener('click',()=>activeUpload?.abort());
 async function getFile(file){return (await request('/private/documents/'+encodeURIComponent(file.id))).blob()}
 async function openPdf(file){
  try{notice('PDF wird geladen …');const blob=await getFile(file);await openCloudPdf(new File([blob],file.filename,{type:'application/pdf'}),file.id);notice('PDF im Reader geöffnet.')}
