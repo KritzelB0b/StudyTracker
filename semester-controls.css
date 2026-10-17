@@ -40,3 +40,14 @@
  #semCalendar .sem-day{padding:5px 2px}
  #semCalendar .sem-day .small{gap:2px}
 }
+
+/* Keep action buttons usable when modules and praxis titles get long. */
+#topics .module-row{flex-wrap:wrap}
+#topics .module-row>div:first-child{min-width:0;flex:1 1 160px}
+#topics .module-row .module-name{overflow-wrap:anywhere}
+#topics .module-row .actions{margin-left:auto;flex:0 0 auto}
+#topics .topic-top{flex-wrap:wrap}
+#topics .topic-tools{margin-left:auto}
+.phase-card>.title-row{flex-wrap:wrap}
+.phase-card>.title-row>div:first-child{flex:1 1 180px;min-width:0}
+.phase-card>.title-row button{padding:8px 10px;min-height:40px;font-size:12px}
