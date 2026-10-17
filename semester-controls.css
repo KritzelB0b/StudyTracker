@@ -26,6 +26,7 @@
  #semCalendar .sem-day .small{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px;width:100%;margin:0;overflow:visible}
  #semCalendar .sem-tag{display:flex;align-items:center;justify-content:center;max-width:100%;min-width:0;height:17px;min-height:17px;font-size:10px!important;line-height:1!important;font-weight:750;padding:0 1px!important;margin:0;border-left:3px solid var(--event-color,#db7c31);border-radius:3px;white-space:nowrap;overflow:hidden}
  #semCalendar .sem-learn{border-left-color:#34d399}
+ #semCalendar .sem-tag::first-letter{font-size:10px!important}
  #semCalendar .sem-tag-label{display:none}
  #semCalendar .sem-tag-compact{display:inline}
  .st-term-switch{padding:11px;margin-bottom:14px;gap:7px}
