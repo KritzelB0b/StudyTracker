@@ -1,0 +1,140 @@
+
+/* Shared semester switches, owner-only rename form and narrow month-calendar counters. */
+.st-term-switch{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;background:#292622;border:1px solid #605446;border-radius:14px;padding:13px 16px;margin-bottom:18px}
+.st-term-switch label{font-weight:750;font-size:14px}
+.st-term-switch select{max-width:330px;min-width:220px;flex:1 1 220px;min-height:43px;padding:10px;background:#1e1d1b;border:1px solid #65594a;border-radius:10px;color:#f5f1ec}
+.st-term-hint{font-size:12px;line-height:1.4;color:#c3b6a8;flex:2 1 220px}
+.st-topic-filter{margin:4px 0 13px}
+.st-topic-filter select{max-width:100%}
+.st-rename-dialog{border-radius:18px;background:#34312e;color:#f3efeb;border:1px solid #796a5b;width:min(460px,calc(100vw - 22px));max-width:calc(100vw - 22px);padding:21px;box-shadow:0 18px 65px #000a}
+.st-rename-dialog::backdrop{background:#080706cb}
+.st-edit-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:17px}
+.st-edit-head h2{margin:0;font-size:19px;font-weight:720}
+.st-edit-head .secondary{padding:5px 11px;font-size:23px;line-height:1;min-width:44px;min-height:44px}
+.st-edit-error{color:#ffc0b7;font-size:12px;min-height:14px}
+.st-edit-actions{display:flex;align-items:center;justify-content:flex-end;gap:9px;margin-top:20px}
+.st-edit-actions button{min-height:43px}
+#semCalendar .sem-day{min-width:0}
+#semCalendar .sem-tag-compact{display:none}
+#semCalendar .sem-tag-label{display:inline}
+#semCalendar .sem-day.sem-outside{opacity:.32;cursor:default}
+#semCalendar .sem-day.sem-outside .small{display:none}
+@media(max-width:700px){
+ #semCalendar{gap:4px}
+ #semCalendar .sem-day{min-height:82px;padding:5px 3px;border-radius:7px;display:flex;flex-direction:column;align-items:stretch;gap:5px}
+ #semCalendar .sem-day strong{font-size:12px;line-height:1.2}
+ #semCalendar .sem-day .small{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px;width:100%;margin:0;overflow:visible}
+ #semCalendar .sem-tag{display:flex;align-items:center;justify-content:center;max-width:100%;min-width:0;height:17px;min-height:17px;font-size:10px!important;line-height:1!important;font-weight:750;padding:0 1px!important;margin:0;border-left:3px solid var(--event-color,#db7c31);border-radius:3px;white-space:nowrap;overflow:hidden}
+ #semCalendar .sem-learn{border-left-color:#34d399}
+ #semCalendar .sem-tag::first-letter{font-size:10px!important}
+ #semCalendar .sem-tag-label{display:none}
+ #semCalendar .sem-tag-compact{display:inline}
+ .st-term-switch{padding:11px;margin-bottom:14px;gap:7px}
+ .st-term-switch select{min-width:0;flex-basis:100%;max-width:100%}
+ .st-term-hint{flex-basis:100%}
+ .st-edit-actions{display:grid;grid-template-columns:1fr 1fr}
+ .st-edit-actions button{padding:10px 6px}
+}
+@media(max-width:370px){
+ #semCalendar{gap:2px}
+ #semCalendar .sem-day{padding:5px 2px}
+ #semCalendar .sem-day .small{gap:2px}
+}
+
+/* Keep action buttons usable when modules and praxis titles get long. */
+#topics .module-row{flex-wrap:wrap}
+#topics .module-row>div:first-child{min-width:0;flex:1 1 160px}
+#topics .module-row .module-name{overflow-wrap:anywhere}
+#topics .module-row .actions{margin-left:auto;flex:0 0 auto}
+#topics .topic-top{flex-wrap:wrap}
+#topics .topic-tools{margin-left:auto}
+.phase-card>.title-row{flex-wrap:wrap}
+.phase-card>.title-row>div:first-child{flex:1 1 180px;min-width:0}
+.phase-card>.title-row button{padding:8px 10px;min-height:40px;font-size:12px}
+
+
+/* Mobile calendar v2: deliberately display color indicators, never narrow text labels.
+   Full event names and times are in the selected day's detail below the calendar. */
+.st-handbook-intro{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.st-handbook-intro h3{font-size:17px;margin:0 0 7px}
+.st-handbook-intro .sub{max-width:740px;line-height:1.5}
+.st-handbook-intro button{flex:0 0 auto}
+.st-handbook-details{margin-top:13px;border:1px solid #5d5348;border-radius:12px;padding:13px;background:#272522}
+.st-handbook-details summary{cursor:pointer;font-weight:700;color:#f2d2b4}
+.st-handbook-row{display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid #51483f;padding:13px 0}
+.st-handbook-row:first-child{margin-top:12px}
+.st-handbook-row>div{min-width:0}
+.st-handbook-row strong{font-size:14px;overflow-wrap:anywhere}
+.st-handbook-row .sub{margin-top:5px;line-height:1.55}
+.st-handbook-row button{flex:0 0 auto;min-height:38px}
+.st-handbook-state{font-size:12px;color:#b5d8c2}
+@media(max-width:700px){
+ #semCalendar .sem-day{overflow:hidden!important;min-height:75px!important}
+ #semCalendar .sem-day .small{display:flex!important;flex-wrap:wrap!important;align-content:flex-start;gap:3px!important;max-height:25px;min-width:0;overflow:hidden!important}
+ #semCalendar .sem-tag,#semCalendar .sem-tag[class*="ev-"]{
+  display:inline-block!important;flex:0 0 9px!important;width:9px!important;max-width:9px!important;
+  height:9px!important;min-height:9px!important;max-height:9px!important;
+  margin:0!important;padding:0!important;border:0!important;border-radius:3px!important;
+  background:var(--event-color,#dd853f)!important;color:transparent!important;
+  font-size:0!important;line-height:0!important;overflow:hidden!important;text-indent:-9999px!important;
+ }
+ #semCalendar .sem-tag.sem-learn{background:#34d399!important}
+ #semCalendar .sem-tag-label,#semCalendar .sem-tag-compact,#semCalendar .sem-tag *{display:none!important}
+ #semCalendar .sem-day strong{line-height:1.25!important}
+ #semester .title-row:has(.sem-toolbar){flex-wrap:wrap;gap:10px}
+ #semester .title-row:has(.sem-toolbar)>h2{flex:1 1 100%;margin:0}
+ #semester .sem-toolbar{width:100%;display:grid;grid-template-columns:44px minmax(0,1fr) 44px;align-items:center;gap:9px}
+ #semester .sem-toolbar strong{text-align:center;min-width:0;white-space:normal;font-size:15px}
+ #semester .sem-toolbar button{min-width:44px;min-height:44px;padding:9px}
+ .st-handbook-intro button{width:100%}
+ .st-handbook-row{align-items:flex-start;flex-wrap:wrap}
+ .st-handbook-row button{min-width:140px}
+}
+
+/* Preview public reader: same semester UX without ever accessing private editor data */
+#publicView .st-public-term{display:flex;align-items:center;flex-wrap:wrap;gap:10px 14px;padding:14px 16px;background:#292622;border:1px solid #605446;border-radius:14px}
+#publicView .st-public-term label{font-size:14px;font-weight:750}
+#publicView .st-public-term select{min-width:200px;max-width:350px;flex:1 1 240px;min-height:43px;background:#1e1d1b;color:#f7f0e8;border:1px solid #786b5e;border-radius:9px;padding:9px}
+#publicView .st-public-term .sub{flex:2 1 210px;line-height:1.35}
+#publicView .st-public-info{font-size:13px;color:#c6bbae;line-height:1.5;margin:11px 0}
+#publicView .st-public-alert{border:1px solid #725d3e;background:#382e22;color:#f2d0a5;border-radius:10px;padding:12px 15px;line-height:1.5;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+#publicView .st-public-alert button{margin-left:auto}
+#publicView .st-public-month-nav{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;gap:10px;align-items:center;min-width:240px}
+#publicView .st-public-month-nav strong{text-align:center;font-size:15px;overflow-wrap:anywhere}
+#publicView .st-public-month-nav button{min-width:44px;min-height:44px;padding:8px}
+#publicView .st-public-cal-head{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+#publicView .st-public-cal-head h2{margin:0}
+#publicView .st-public-cal-grid{margin:12px 0 20px;min-width:0;gap:5px}
+#publicView .st-public-cal-grid .reader-day{min-width:0;min-height:83px;max-width:100%;display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:8px 5px;overflow:hidden!important;overflow-wrap:normal}
+#publicView .st-public-cal-grid .reader-day strong{font-size:13px;line-height:1.2}
+#publicView .st-public-cal-grid .reader-day.outterm{opacity:.26;cursor:default}
+#publicView .st-public-dot-row{display:flex;flex-wrap:wrap;align-content:flex-start;gap:3px;overflow:hidden;max-height:27px;width:100%}
+#publicView .st-public-event-dot{width:9px;height:9px;flex:0 0 9px;border-radius:3px;background:var(--event-color,#e66700)!important;display:block!important;border:0!important;padding:0!important;margin:0!important;font-size:0!important}
+#publicView .st-public-week-scroll{overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+#publicView .st-public-week-scroll .planday.st-outterm{opacity:.35}
+#publicView .st-public-table{overflow-x:auto}
+#publicView .st-public-table th,#publicView .st-public-table td{white-space:nowrap}
+#publicView .st-public-handbook .title-row{flex-wrap:wrap}
+#publicView .st-public-handbook .field{margin:10px 0 14px}
+#publicView .st-public-handbook-section{padding:9px 0;border-top:1px solid #51483f}
+#publicView .st-public-handbook-section h4{margin:0 0 10px;font-size:14px;color:#f2c99f}
+#publicView .st-public-handbook-row{display:grid;gap:5px;padding:10px 0;border-bottom:1px solid #4b433a}
+#publicView .st-public-handbook-row strong{font-size:13px;overflow-wrap:anywhere}
+#publicView .st-public-handbook-row .sub{font-size:12px;line-height:1.5}
+@media(max-width:700px){
+ #publicView .st-public-term{padding:11px}
+ #publicView .st-public-term select{min-width:0;max-width:none;flex-basis:100%}
+ #publicView .st-public-term .sub{flex-basis:100%}
+ #publicView .st-public-cal-head h2{flex:1 1 100%}
+ #publicView .st-public-month-nav{width:100%;min-width:0}
+ #publicView .st-public-cal-grid{gap:3px}
+ #publicView .st-public-cal-grid .reader-day{min-height:72px;padding:5px 3px;gap:7px;border-radius:7px}
+ #publicView .st-public-cal-grid .reader-day strong{font-size:12px}
+ #publicView .st-public-dot-row{gap:3px;max-height:22px}
+ #publicView .st-public-event-dot{width:8px;height:8px;flex-basis:8px}
+}
+@media(max-width:370px){
+ #publicView .st-public-cal-grid{gap:2px}
+ #publicView .st-public-cal-grid .reader-day{padding:4px 2px;min-height:69px}
+ #publicView .st-public-event-dot{width:7px;height:7px;flex-basis:7px}
+}
