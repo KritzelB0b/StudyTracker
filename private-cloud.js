@@ -1,4 +1,4 @@
-import {openCloudPdf} from './pdf-reader.js?v=6';
+import {openCloudPdf,linkCloudPdf} from './pdf-reader.js?v=8';
 const API='https://studytracker-api-production-7134.up.railway.app';
 const $=id=>document.getElementById(id);
 const token=()=>sessionStorage.getItem('studytracker_cloud_token')||'';
@@ -25,8 +25,11 @@ function fullPath(id){
  while(current&&!seen.has(current)){seen.add(current);const node=folders.find(f=>f.id===current);if(!node)break;names.unshift(node.name);current=node.parent_id}
  return ['Hauptordner',...names].join(' / ');
 }
+let refreshingFiles=false,lastFilesRefresh=0;
 async function refresh(){
  if(!enabled())return notice('Bitte im privaten Cloud-Dateispeicher anmelden.');
+ if(refreshingFiles)return;
+ refreshingFiles=true;
  try{
   const [fr,dr]=await Promise.all([
    request('/private/folders'),
@@ -34,8 +37,14 @@ async function refresh(){
   ]);
   folders=await fr.json();files=await dr.json();
   if(folder&&!folders.some(f=>f.id===folder))folder=null;
-  paint();await showStorage();notice('Cloud-Dateispeicher verbunden · '+nameFor(folder));
- }catch(error){notice('Dateien konnten nicht geladen werden: '+error.message)}
+  paint();await showStorage();lastFilesRefresh=Date.now();notice('Cloud-Dateispeicher synchronisiert · '+nameFor(folder));
+ }catch(error){notice('Dateien konnten nicht geladen werden: '+error.message)}finally{refreshingFiles=false}
+}
+function refreshVisibleFiles(force=false){
+ const panel=$('files');
+ if(!enabled()||!navigator.onLine||document.hidden||!panel||panel.classList.contains('hidden'))return;
+ if(!force&&Date.now()-lastFilesRefresh<15000)return;
+ refresh();
 }
 let floatingMenu=null,menuAnchor=null;
 function closeActionMenu(returnFocus=false){
@@ -189,6 +198,147 @@ async function removeFolder(item){
  catch(e){notice(e.message)}
 }
 let activeUpload=null;
+/* Persist pending PDF uploads locally so offline/network interruptions never silently discard them.
+   Uploading only happens for the signed-in owner and the separate test file account. */
+let pendingDbPromise=null,queuedUploading=false,activePendingId=null;
+const KNOWN_PDF_KEY='studytracker_live_known_pdfs_v1';
+function knownPdfs(){try{return JSON.parse(localStorage.getItem(KNOWN_PDF_KEY)||'{}')}catch{return {}}}
+function rememberPdf(fingerprint,doc,folderId){
+ if(!fingerprint||!doc)return;
+ try{
+  const known=knownPdfs();known[fingerprint]={id:doc,folderId};
+  const keys=Object.keys(known);
+  for(const key of keys.slice(0,Math.max(0,keys.length-300)))delete known[key];
+  localStorage.setItem(KNOWN_PDF_KEY,JSON.stringify(known));
+ }catch(e){}
+}
+async function pdfFingerprint(file){
+ const head=new Uint8Array(await file.slice(0,65536).arrayBuffer());
+ const tail=new Uint8Array(await file.slice(Math.max(0,file.size-65536)).arrayBuffer());
+ const meta=new TextEncoder().encode(file.name+'-'+file.size);
+ const combined=new Uint8Array(meta.length+head.length+tail.length);
+ combined.set(meta);combined.set(head,meta.length);combined.set(tail,meta.length+head.length);
+ const hash=await crypto.subtle.digest('SHA-256',combined);
+ return [...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function pendingDb(){
+ if(!pendingDbPromise)pendingDbPromise=new Promise((resolve,reject)=>{
+  const req=indexedDB.open('studytracker-live-pending-pdfs-v1',1);
+  req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains('uploads'))req.result.createObjectStore('uploads',{keyPath:'id'})};
+  req.onsuccess=()=>resolve(req.result);
+  req.onerror=()=>reject(req.error||Error('Lokale PDF-Warteschlange nicht verfügbar'));
+ });
+ return pendingDbPromise;
+}
+async function pendingAll(){
+ const db=await pendingDb();
+ return new Promise((resolve,reject)=>{
+  const tx=db.transaction('uploads','readonly'),req=tx.objectStore('uploads').getAll();
+  req.onsuccess=()=>resolve(req.result.sort((a,b)=>a.created-b.created));
+  req.onerror=()=>reject(req.error);
+ });
+}
+async function pendingSave(record){
+ const db=await pendingDb();
+ return new Promise((resolve,reject)=>{
+  const tx=db.transaction('uploads','readwrite');
+  tx.objectStore('uploads').put(record);
+  tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);
+ });
+}
+async function pendingDelete(id){
+ const db=await pendingDb();
+ return new Promise((resolve,reject)=>{
+  const tx=db.transaction('uploads','readwrite');
+  tx.objectStore('uploads').delete(id);
+  tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);
+ });
+}
+async function pendingStatus(){
+ const el=$('cloudAutoQueueStatus'),indicator=$('pdfSyncIndicator');
+ try{
+  const count=(await pendingAll()).length;
+  if(el)el.textContent=count?count+' PDF'+(count===1?'':'s')+' wartet/warten auf den Cloud-Upload. Dateien bleiben bis dahin lokal auf diesem Gerät.':'PDF-Uploads werden automatisch in der privaten Cloud gespeichert.';
+  if(indicator)indicator.textContent=count?count+' PDF'+(count===1?'':'s')+' ausstehend':enabled()?'PDF-Cloud ✓':'PDF-Cloud: nicht angemeldet';
+ }catch(e){
+  if(el)el.textContent='PDF-Warteschlange nicht verfügbar – lokale Uploads bitte prüfen.';
+  if(indicator)indicator.textContent='PDF-Upload prüfen';
+ }
+}
+async function queueReaderPdf(file){
+ if(!file||(!file.name.toLowerCase().endsWith('.pdf')&&file.type!=='application/pdf'))return false;
+ if(file.size>125*1048576){notice('PDF über 125 MB: nur lokal geöffnet, nicht in die Cloud übernommen.');return false}
+ const id=crypto.randomUUID?.()||String(Date.now())+'-'+Math.random();
+ try{
+  const fingerprint=await pdfFingerprint(file);
+  if((await pendingAll()).some(p=>p.fingerprint===fingerprint&&p.folderId===folder)){
+   notice('PDF ist bereits für die automatische Cloud-Synchronisierung vorgemerkt.');
+   processPendingPdf();return true;
+  }
+  await pendingSave({id,file,filename:file.name,size:file.size,mime:file.type||'application/pdf',fingerprint,folderId:folder,created:Date.now()});
+  await pendingStatus();
+  notice(navigator.onLine?'PDF lokal geöffnet · Cloud-Upload wird automatisch gestartet.':'PDF lokal gespeichert · Upload beginnt automatisch nach Wiederherstellung der Verbindung.');
+  processPendingPdf();return true;
+ }catch(e){notice('PDF nicht automatisch vorgemerkt (z. B. zu wenig Speicherplatz): '+e.message);return false}
+}
+async function processPendingPdf(){
+ if(queuedUploading||activeUpload||!enabled()||!navigator.onLine)return;
+ queuedUploading=true;let complete=false;
+ try{
+  const items=await pendingAll();
+  if(!items.length)return;
+  const item=items[0];activePendingId=item.id;
+  // Link only if this particular PDF was previously uploaded by this browser.
+  // Filename+size alone can describe different files and must not reuse notes.
+  const url='/private/documents'+(item.folderId?'?folder_id='+encodeURIComponent(item.folderId):'');
+  const existing=await(await request(url)).json();
+  const remembered=knownPdfs()[item.fingerprint];
+  const found=existing.find(d=>d.id===remembered?.id&&d.filename===item.filename&&d.size===item.size&&d.mime==='application/pdf');
+  let cloudId=found?.id;
+  if(!cloudId){
+   const params=new URLSearchParams({filename:item.filename});
+   if(item.folderId)params.set('folder_id',item.folderId);
+   const file=item.file;
+   cloudId=await new Promise((resolve,reject)=>{
+    const xhr=new XMLHttpRequest();activeUpload=xhr;
+    xhr.open('POST',API+'/private/documents?'+params);
+    xhr.setRequestHeader('Authorization','Bearer '+token());
+    xhr.setRequestHeader('Content-Type','application/pdf');
+    setUploadProgress(0,'PDF wird automatisch hochgeladen: '+item.filename);
+    xhr.upload.onprogress=e=>{
+     if(e.lengthComputable)setUploadProgress(Math.round(e.loaded/e.total*100),'PDF wird synchronisiert: '+Math.round(e.loaded/e.total*100)+' %');
+    };
+    xhr.onerror=()=>reject(Error('Netzwerkfehler'));
+    xhr.onabort=()=>reject(Error('Upload unterbrochen'));
+    xhr.onload=()=>{
+     if(xhr.status>=200&&xhr.status<300){try{resolve(JSON.parse(xhr.responseText).id)}catch(e){reject(e)}}
+     else reject(Error('HTTP '+xhr.status));
+    };
+    xhr.onloadend=()=>{if(activeUpload===xhr)activeUpload=null;$('cloudFileUpload').disabled=false;setUploadProgress(0,'',false)};
+    $('cloudFileUpload').disabled=true;
+    xhr.send(file);
+   });
+  }
+  rememberPdf(item.fingerprint,cloudId,item.folderId);
+  await pendingDelete(item.id);complete=true;
+  await pendingStatus();
+  linkCloudPdf({name:item.filename,size:item.size},cloudId);
+  notice('PDF automatisch in der Cloud gespeichert: '+item.filename);
+  if(document.querySelector('#files:not(.hidden)'))await refresh();
+ }catch(e){
+  notice('PDF wartet auf erneuten automatischen Upload: '+e.message+' · lokale Kopie bleibt erhalten.');
+ }finally{
+  queuedUploading=false;activePendingId=null;
+  if(complete)setTimeout(processPendingPdf,350);
+ }
+}
+document.addEventListener('st-pdf-local-selected',e=>queueReaderPdf(e.detail.file));
+window.addEventListener('online',()=>{processPendingPdf();refreshVisibleFiles(true)});
+window.addEventListener('focus',()=>{processPendingPdf();refreshVisibleFiles()});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){processPendingPdf();refreshVisibleFiles()}});
+setInterval(()=>{processPendingPdf();refreshVisibleFiles()},60000);
+pendingStatus();
+
 function setUploadProgress(value,message,visible=true){
  const bar=$('cloudUploadProgressBar'),region=$('cloudUploadProgress');
  if(region)region.hidden=!visible;
@@ -201,7 +351,7 @@ function upload(){
  if(!file)return notice('Bitte eine Datei auswählen.');
  if(!enabled())return notice('Bitte zuerst im privaten Cloud-Dateispeicher anmelden.');
  const max=125*1048576;
- if(file.size>max)return notice('Datei zu groß: Maximal 125 MB pro Datei in der Cloud.');
+ if(file.size>max)return notice('Datei zu groß: Maximal 125 MB pro Datei in dieser Testversion.');
  if(activeUpload)return notice('Bitte den laufenden Upload zuerst abschließen.');
  const params=new URLSearchParams({filename:file.name});if(folder)params.set('folder_id',folder);
  const xhr=new XMLHttpRequest();activeUpload=xhr;
@@ -225,7 +375,15 @@ function upload(){
  function finish(success,message){if(activeUpload!==xhr)return;activeUpload=null;$('cloudFileUpload').disabled=false;setUploadProgress(success?100:0,message,false)}
  xhr.send(file);
 }
-$('cloudUploadCancel').addEventListener('click',()=>activeUpload?.abort());
+$('cloudUploadCancel').addEventListener('click',async()=>{
+ const queued=activePendingId;
+ activeUpload?.abort();
+ if(queued){
+  await pendingDelete(queued).catch(()=>{});
+  await pendingStatus();
+  notice('Automatischer PDF-Upload abgebrochen und aus der Warteschlange entfernt. Die Datei bleibt lokal im Reader.');
+ }
+});
 async function getFile(file){return (await request('/private/documents/'+encodeURIComponent(file.id))).blob()}
 async function openPdf(file){
  try{notice('PDF wird geladen …');const blob=await getFile(file);await openCloudPdf(new File([blob],file.filename,{type:'application/pdf'}),file.id);notice('PDF im Reader geöffnet.')}
@@ -248,8 +406,36 @@ async function showStorage(){
   $('cloudStorageBar').style.width=percent+'%';$('cloudStorageProgress').setAttribute('aria-valuenow',String(Math.round(percent)));
  }catch(e){$('cloudStorageUsage').textContent='Speicherinformationen nicht verfügbar: '+e.message}
 }
+function refreshFileAuth(){pendingStatus()}
+document.addEventListener('st-cloud-credentials',event=>{
+ if(event.detail?.token){
+  refresh();processPendingPdf();
+ }else{
+  folder=null;folders=[];files=[];paint();lastFilesRefresh=0;
+  notice('Private Datei-Cloud abgemeldet. Die lokale PDF-Warteschlange bleibt erhalten.');
+ }
+ refreshFileAuth();
+});
+refreshFileAuth();
+if(enabled()){refresh();processPendingPdf()}
+
 $('cloudFolderCreate').addEventListener('click',createFolder);
+$('cloudFileInput').addEventListener('change',async event=>{
+ const file=event.target.files?.[0];
+ if(!file)return;
+ if(file.name.toLowerCase().endsWith('.pdf')||file.type==='application/pdf'){
+  if(!enabled()){notice('Bitte zuerst im Cloud-Dateispeicher anmelden. Danach PDF erneut auswählen.');return}
+  const queued=await queueReaderPdf(file);
+  if(queued)event.target.value='';
+  else if(navigator.onLine){
+   notice('PDF-Warteschlange nicht verfügbar. Direktupload wird versucht; die Datei bleibt bis zum Erfolg ausgewählt.');
+   upload();
+  }
+ }else{
+  notice('Datei ausgewählt. Für dieses Dateiformat bitte „Datei hochladen“ anklicken.');
+ }
+});
 $('cloudFileUpload').addEventListener('click',upload);
 $('cloudFilesReload').addEventListener('click',refresh);
 $('cloudFileSearch').addEventListener('input',paint);
-document.querySelector('[data-tab="files"]').addEventListener('click',()=>{if(enabled())refresh()});
+document.querySelector('[data-tab="files"]').addEventListener('click',()=>{if(enabled()){refresh();processPendingPdf()}});
