@@ -195,7 +195,7 @@ const snapshot=()=>JSON.stringify({modules:db.modules,topics:db.topics,entries:d
 const cloudStatus=s=>{
  $('cloudStatus').textContent=s;
  const indicator=$('studySyncIndicator');
- if(indicator)indicator.textContent=s.includes('✓')?'Cloud ✓':s.includes('Konflikt')||s.includes('Abgleich')?'Abgleich nötig':s.includes('Offline')?'Offline gespeichert':cloudToken?'Cloud wird geprüft':'Nur lokal';
+ if(indicator)indicator.textContent=s.includes('✓')?'Cloud ✓':cloudConflict||s.includes('Konflikt')||s.includes('Abgleich')?'Abgleich nötig':s.includes('Offline')?'Offline gespeichert':cloudToken?'Cloud wird geprüft':'Nur lokal';
 };
 function cloudView(){
  $('cloudActions').classList.toggle('hidden',!cloudToken);
@@ -308,7 +308,10 @@ function cloudChanged(){
  cloudTimer=setTimeout(()=>cloudPush(false),1200);
 }
 async function cloudPush(explicit=false){
- if(cloudBusy||!cloudToken||cloudRevision===null||cloudConflict||(!explicit&&!cloudActive))return;
+ if(!cloudToken||cloudRevision===null||cloudConflict||(!explicit&&!cloudActive))return;
+ // Another cloud request might still be in flight when the debounced save fires.
+ // Retry instead of silently dropping the pending local change.
+ if(cloudBusy){clearTimeout(cloudTimer);cloudTimer=setTimeout(()=>cloudPush(explicit),1500);return}
  if(!navigator.onLine){cloudStatus('Offline · lokale Daten bleiben erhalten; späterer Upload geplant.');return}
  const current=snapshot();
  if(current===cloudBaseline&&!explicit){cloudStatus('Synchronisiert ✓');return}
