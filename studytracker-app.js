@@ -1,6 +1,7 @@
 'use strict';
 const KEY='studytracker_v1';
 const colors=['#e97812','#dba563','#87b4a1','#b09dbe','#d59a89'];
+const safeColor=value=>/^#[0-9a-f]{6}$/i.test(String(value||''))?String(value):'#e97812';
 const defaults=()=>({modules:[{id:'m1',name:'Mathematik',color:colors[0],goal:6},{id:'m2',name:'Technische Mechanik',color:colors[1],goal:5},{id:'m3',name:'Werkstoffkunde',color:colors[2],goal:3},{id:'m4',name:'Konstruktion',color:colors[3],goal:4}],topics:[],entries:[]});
 function readData(){try{const d=JSON.parse(localStorage.getItem(KEY));if(d&&Array.isArray(d.modules)&&Array.isArray(d.topics)&&Array.isArray(d.entries))return d;}catch(e){}return defaults()}
 let db=readData();const $=id=>document.getElementById(id);const fmt=n=>Number(n).toLocaleString('de-DE',{maximumFractionDigits:1});const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const uid=()=>typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2);const getM=id=>db.modules.find(m=>m.id===id);const getT=id=>db.topics.find(t=>t.id===id);const dayKey=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;const today=()=>dayKey(new Date());const dateOf=s=>new Date(s+'T12:00:00');const startWeek=()=>{const d=dateOf(today());d.setDate(d.getDate()-(d.getDay()+6)%7);return dayKey(d)};const sum=entries=>entries.reduce((s,e)=>s+e.minutes,0);const hr=min=>fmt(min/60)+' h';
@@ -21,8 +22,20 @@ function studyRoot(){if(!db.study||typeof db.study!=='object'||Array.isArray(db.
 function activeTermId(){const id=db.study?.activeTermId;return SEMESTERS.some(t=>t.id===id)?id:LEGACY_TERM}
 function activeTerm(){return SEMESTERS.find(t=>t.id===activeTermId())||SEMESTERS[0]}
 function isTermDate(date){const t=activeTerm();return date>=t.start&&date<=t.end}
-function termModules(){const id=activeTermId();return db.modules.filter(m=>(m.semesterId||LEGACY_TERM)===id)}
-function termEntries(){const ids=new Set(termModules().map(m=>m.id));return db.entries.filter(e=>ids.has(e.moduleId))}
+function termModules(){
+ const id=activeTermId();
+ return db.modules.filter(m=>(m.semesterId||LEGACY_TERM)===id||
+  (id==='ss-2027'&&(m.semesterId||LEGACY_TERM)==='ws-2026'&&(
+   m.handbookCode==='8000'||
+   db.study?.modules?.some(meta=>meta.localId===m.id&&meta.id==='s13_5')||
+   /^coaching-selbstkompetenz(?:\s+teil\s+[12])?$/i.test(String(m.name||'').trim())
+  )));
+}
+function termEntries(){
+ const modules=termModules(),ids=new Set(modules.map(m=>m.id));
+ const shared=new Set(modules.filter(m=>m.handbookCode==='8000').map(m=>m.id));
+ return db.entries.filter(e=>ids.has(e.moduleId)&&(!shared.has(e.moduleId)||isTermDate(e.date)));
+}
 function termPlan(create=true){
  const root=create?studyRoot():db.study;if(!root||typeof root!=='object')return null;
  if(activeTermId()===LEGACY_TERM)return root;
@@ -77,15 +90,15 @@ function selectOptions(id,extra=[]){const el=$(id);const prev=el.value;el.innerH
 function topicOptions(modSelect,topicSelect){const m=$(modSelect).value;const el=$(topicSelect);const prev=el.value;el.innerHTML='<option value="">Kein Thema</option>'+db.topics.filter(t=>t.moduleId===m).map(t=>`<option value="${esc(t.id)}">${esc(t.parentId?"↳ ":"")}${esc(t.name)}</option>`).join('');if([...el.options].some(x=>x.value===prev))el.value=prev}
 const getStats=()=>{const week=startWeek(),entries=termEntries();return {today:entries.filter(e=>e.date===today()),week:entries.filter(e=>e.date>=week&&e.date<=today()),all:entries}};
 function drawOverview(){const stats=getStats();[['today','today'],['week','week'],['total','all']].forEach(([prefix,key])=>{$(prefix+'Metric').textContent=hr(sum(stats[key]));$(prefix+'Count').textContent=stats[key].length+' Lerneinheiten'});$('today').textContent=new Date().toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
-const weekStats=stats.week;const totalByModule=termModules().map(m=>({...m,minutes:sum(termEntries().filter(e=>e.moduleId===m.id)),wMinutes:sum(weekStats.filter(e=>e.moduleId===m.id))}));const max=Math.max(1,...totalByModule.map(m=>m.minutes));$('moduleOverview').innerHTML=totalByModule.length?totalByModule.map(m=>`<div class="module-row" style="display:block"><div style="display:flex;justify-content:space-between;gap:9px"><span class="module-name"><i class="dot" style="background:${m.color}"></i>${esc(m.name)}</span><strong>${hr(m.minutes)}</strong></div><div class="bar"><div style="background:${m.color};width:${m.minutes/max*100}%"></div></div></div>`).join(''):'<div class="empty">Lege dein erstes Modul an.</div>';
+const weekStats=stats.week;const totalByModule=termModules().map(m=>({...m,minutes:sum(termEntries().filter(e=>e.moduleId===m.id)),wMinutes:sum(weekStats.filter(e=>e.moduleId===m.id))}));const max=Math.max(1,...totalByModule.map(m=>m.minutes));$('moduleOverview').innerHTML=totalByModule.length?totalByModule.map(m=>`<div class="module-row" style="display:block"><div style="display:flex;justify-content:space-between;gap:9px"><span class="module-name"><i class="dot" style="background:${safeColor(m.color)}"></i>${esc(m.name)}</span><strong>${hr(m.minutes)}</strong></div><div class="bar"><div style="background:${safeColor(m.color)};width:${m.minutes/max*100}%"></div></div></div>`).join(''):'<div class="empty">Lege dein erstes Modul an.</div>';
 $('goalOverview').innerHTML=totalByModule.filter(m=>m.goal>0).map(m=>`<div class="goal"><div class="goal-head"><span class="goal-title">${esc(m.name)}</span><span class="muted">${hr(m.wMinutes)} / ${fmt(m.goal)} h</span></div><div class="progress"><div style="width:${Math.min(100,m.wMinutes/(m.goal*60)*100)}%"></div></div></div>`).join('')||'<div class="empty">Keine Wochenziele vorhanden.</div>';
 const lastDays=Array.from({length:7},(_,i)=>{const d=dateOf(today());d.setDate(d.getDate()-6+i);return{date:dayKey(d),label:d.toLocaleDateString('de-DE',{weekday:'short'}),minutes:sum(termEntries().filter(e=>e.date===dayKey(d)))}});const barmax=Math.max(60,...lastDays.map(d=>d.minutes));$('weekChart').innerHTML=lastDays.map(d=>`<div class="chart-item"><div class="small" style="margin-bottom:4px">${d.minutes?fmt(d.minutes/60):''}</div><div class="chart-bar-container"><div class="chart-bar" style="height:${Math.max(2,100*d.minutes/barmax)}%"></div></div>${esc(d.label)}</div>`).join('');
 $('recentEntries').innerHTML=termEntries().length?sortEntries(termEntries()).slice(0,4).map(entryHtml).join(''):'<div class="empty">Noch keine Lerneinheiten erfasst. Starte deinen ersten Timer!</div>';
 }
 function sortEntries(a){return [...a].sort((x,y)=>((y.date||'')+' '+(y.createdAt||'')).localeCompare((x.date||'')+' '+(x.createdAt||'')))}
 function entryHtml(e){return `<div class="entry"><div><strong>${esc(getM(e.moduleId)?.name||'Gelöschtes Modul')}${getT(e.topicId)?' · '+esc(getT(e.topicId).name):''}</strong><div class="muted">${esc(dateOf(e.date).toLocaleDateString('de-DE'))}${e.note?' · '+esc(e.note):''}</div></div><div class="right"><strong>${hr(e.minutes)}</strong><button class="icon-button" title="Eintrag löschen" data-delete-entry="${esc(e.id)}">×</button></div></div>`}
-function drawTopics(){$('moduleList').innerHTML=termModules().map(m=>`<div class="module-row"><div><span class="module-name"><i class="dot" style="background:${m.color}"></i>${esc(m.name)}</span><span class="small muted">Wochenziel: ${fmt(m.goal)} h</span></div><div class="actions"><button class="icon-button" data-rename-module="${esc(m.id)}" title="Modul umbenennen">✎</button><button class="icon-button" data-edit-module="${esc(m.id)}" title="Wochenziel bearbeiten">Ziel</button><button class="icon-button" data-delete-module="${esc(m.id)}" title="Modul löschen">×</button></div></div>`).join('')||'<div class="empty">Noch keine Module.</div>';
-const filter=$('topicListModule').value,visible=termModules().filter(m=>!filter||m.id===filter),matched=db.topics.filter(t=>visible.some(m=>m.id===t.moduleId));$('topicCount').textContent=matched.length+' Themen';$('topicList').innerHTML=matched.length?visible.map(m=>{const a=db.topics.filter(t=>t.moduleId===m.id);return a.length?`<div style="margin-bottom:15px"><div class="module-name"><i class="dot" style="background:${m.color}"></i>${esc(m.name)}</div>${a.map(t=>`<div class="topic ${t.parentId?'topic-indent':''}"><div class="topic-top"><span class="topic-title">${t.parentId?'↳ ':''}${esc(t.name)}</span><span class="topic-tools"><span class="chip">${hr(sum(db.entries.filter(e=>e.topicId===t.id)))}</span><button class="icon-button" data-edit-topic="${esc(t.id)}" title="Thema umbenennen">✎</button><button class="icon-button" data-delete-topic="${esc(t.id)}" title="Thema löschen">×</button></span></div><div class="field" style="margin-top:10px"><label>Kenntnisstand</label><select data-mastery="${esc(t.id)}">${['Noch nicht begonnen','Unsicher','In Bearbeitung','Gut verstanden','Sicher beherrscht'].map((label,i)=>`<option value="${i}" ${t.mastery===i?'selected':''}>${label}</option>`).join('')}</select></div></div>`).join('')}</div>`:''}).join(''):'<div class="empty">Füge Themen hinzu und bewerte deinen Lernfortschritt.</div>'}
+function drawTopics(){$('moduleList').innerHTML=termModules().map(m=>`<div class="module-row"><div><span class="module-name"><i class="dot" style="background:${safeColor(m.color)}"></i>${esc(m.name)}</span><span class="small muted">Wochenziel: ${fmt(m.goal)} h</span></div><div class="actions"><button class="icon-button" data-rename-module="${esc(m.id)}" title="Modul umbenennen">✎</button><button class="icon-button" data-edit-module="${esc(m.id)}" title="Wochenziel bearbeiten">Ziel</button><button class="icon-button" data-delete-module="${esc(m.id)}" title="Modul löschen">×</button></div></div>`).join('')||'<div class="empty">Noch keine Module.</div>';
+const filter=$('topicListModule').value,visible=termModules().filter(m=>!filter||m.id===filter),matched=db.topics.filter(t=>visible.some(m=>m.id===t.moduleId));$('topicCount').textContent=matched.length+' Themen';$('topicList').innerHTML=matched.length?visible.map(m=>{const a=db.topics.filter(t=>t.moduleId===m.id);return a.length?`<div style="margin-bottom:15px"><div class="module-name"><i class="dot" style="background:${safeColor(m.color)}"></i>${esc(m.name)}</div>${a.map(t=>`<div class="topic ${t.parentId?'topic-indent':''}"><div class="topic-top"><span class="topic-title">${t.parentId?'↳ ':''}${esc(t.name)}</span><span class="topic-tools"><span class="chip">${hr(sum(db.entries.filter(e=>e.topicId===t.id)))}</span><button class="icon-button" data-edit-topic="${esc(t.id)}" title="Thema umbenennen">✎</button><button class="icon-button" data-delete-topic="${esc(t.id)}" title="Thema löschen">×</button></span></div><div class="field" style="margin-top:10px"><label>Kenntnisstand</label><select data-mastery="${esc(t.id)}">${['Noch nicht begonnen','Unsicher','In Bearbeitung','Gut verstanden','Sicher beherrscht'].map((label,i)=>`<option value="${i}" ${t.mastery===i?'selected':''}>${label}</option>`).join('')}</select></div></div>`).join('')}</div>`:''}).join(''):'<div class="empty">Füge Themen hinzu und bewerte deinen Lernfortschritt.</div>'}
 function filteredEntries(moduleId,topicId,period){return sortEntries(termEntries()).filter(e=>(!moduleId||e.moduleId===moduleId)&&(!topicId||e.topicId===topicId)&&(period==='all'||(period==='week'?e.date>=startWeek()&&e.date<=today():e.date>=today().slice(0,7)+'-01'&&e.date<=today())))}
 function drawHistorySemi(entries){
  const host=$('historySemiChart');host.replaceChildren();
@@ -127,7 +140,7 @@ for(const [a,b] of [['timerModule','timerTopic'],['manualModule','manualTopic']]
 document.querySelectorAll('.tab').forEach(btn=>btn.addEventListener('click',()=>showTab(btn.dataset.tab)));document.addEventListener('click',e=>{const go=e.target.closest('[data-go]');if(go)showTab(go.dataset.go)});let editorAuthorized=false;function accessGate(allowed){editorAuthorized=!!allowed;document.body.classList.toggle("st-auth-locked",!allowed);if(allowed){window.studyReader?.close();showTab("dashboard")}else{window.studyReader?.open()}} function showTab(id){if(!editorAuthorized){if(id==="settings"){window.studyReader?.settings()}else{window.studyReader?.tab(id)}return;}document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===id));document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('hidden',p.id!==id))}
 $('moduleForm').addEventListener('submit',e=>{e.preventDefault();const name=$('newModule').value.trim();if(!name)return;db.modules.push({id:uid(),name,color:$('newColor').value,goal:Number($('newGoal').value),semesterId:activeTermId()});if(activeTermId()!==LEGACY_TERM){const m=db.modules[db.modules.length-1];termPlan().modules.push({id:'custom-'+m.id,localId:m.id,name:m.name,ects:0,total:0,presence:0,self:0})};e.target.reset();persist();notify('Modul angelegt')});$('topicForm').addEventListener('submit',e=>{e.preventDefault();if(!$('topicModule').value)return alert('Lege zuerst ein Modul an.');const name=$('newTopic').value.trim();if(!name)return;db.topics.push({id:uid(),moduleId:$('topicModule').value,name,parentId:$('parentTopic').value||'',mastery:Number($('topicMastery').value)});$('newTopic').value='';persist();notify('Thema angelegt')});
 $('manualForm').addEventListener('submit',e=>{e.preventDefault();const minutes=Number($('manualMinutes').value),date=$('manualDate').value,moduleId=$('manualModule').value;if(!(minutes>0&&minutes<=1440)||!date||!getM(moduleId))return alert('Bitte trage ein gültiges Datum, Modul und eine Dauer ein.');db.entries.push({id:uid(),date,moduleId,topicId:$('manualTopic').value,note:$('manualNote').value.trim(),minutes,createdAt:new Date().toISOString()});$('manualNote').value='';persist();notify('Lernzeit gespeichert')});
-document.addEventListener('change',e=>{const id=e.target.dataset.mastery;if(id){const t=getT(id);if(t){t.mastery=Number(e.target.value);persist()}}});document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;let id=b.dataset.deleteEntry;if(id){if(confirm('Diese Lerneinheit wirklich löschen?')){db.entries=db.entries.filter(x=>x.id!==id);persist()}return}id=b.dataset.editTopic;if(id){const t=getT(id);if(t){openNameDialog({title:'Umbenennen · Thema',value:t.name,maxLength:100,onSave:name=>{t.name=name.slice(0,100);persist();notify('Thema aktualisiert')}});}return}id=b.dataset.deleteTopic;if(id){if(confirm('Thema löschen? Vorhandene Lernzeiten bleiben erhalten, aber ohne Themenbezug.')){db.topics=db.topics.filter(t=>t.id!==id);db.topics.forEach(t=>{if(t.parentId===id)t.parentId=''});db.entries.forEach(e=>{if(e.topicId===id)e.topicId='' });persist()}return}id=b.dataset.deleteModule;if(id){if(confirm('Modul UND ALLE dazugehörigen Themen und Lernzeiten endgültig löschen?')){db.modules=db.modules.filter(m=>m.id!==id);db.topics=db.topics.filter(t=>t.moduleId!==id);db.entries=db.entries.filter(e=>e.moduleId!==id);if(timer.moduleId===id)resetTimer();const plan=termPlan(false);if(plan?.modules)plan.modules=plan.modules.filter(row=>row.localId!==id);if(plan?.tasks)plan.tasks.forEach(task=>{if(task.moduleId===id)task.moduleId=''});persist()}return}id=b.dataset.renameModule;if(id){const m=getM(id);if(m)openNameDialog({title:'Umbenennen · Modul',value:m.name,maxLength:60,onSave:name=>{m.name=name.slice(0,60);const meta=termPlan(false)?.modules?.find(x=>x.localId===m.id);if(meta)meta.name=m.name;persist();notify('Modul umbenannt')}});return}id=b.dataset.editModule;if(id){const m=getM(id);if(m)openNameDialog({title:'Wochenziel bearbeiten',label:'Wochenziel in Stunden',value:m.goal,submit:'Speichern',type:'number',min:0,max:168,onSave:value=>{m.goal=Number(value);persist()}})}});
+document.addEventListener('change',e=>{const id=e.target.dataset.mastery;if(id){const t=getT(id);if(t){t.mastery=Number(e.target.value);persist()}}});document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;let id=b.dataset.deleteEntry;if(id){if(confirm('Diese Lerneinheit wirklich löschen?')){db.entries=db.entries.filter(x=>x.id!==id);persist()}return}id=b.dataset.editTopic;if(id){const t=getT(id);if(t){openNameDialog({title:'Umbenennen · Thema',value:t.name,maxLength:100,onSave:name=>{t.name=name.slice(0,100);persist();notify('Thema aktualisiert')}});}return}id=b.dataset.deleteTopic;if(id){if(confirm('Thema löschen? Vorhandene Lernzeiten bleiben erhalten, aber ohne Themenbezug.')){db.topics=db.topics.filter(t=>t.id!==id);db.topics.forEach(t=>{if(t.parentId===id)t.parentId=''});db.entries.forEach(e=>{if(e.topicId===id)e.topicId='' });persist()}return}id=b.dataset.deleteModule;if(id){if(confirm('Modul UND ALLE dazugehörigen Themen und Lernzeiten endgültig löschen?')){db.modules=db.modules.filter(m=>m.id!==id);db.topics=db.topics.filter(t=>t.moduleId!==id);db.entries=db.entries.filter(e=>e.moduleId!==id);if(timer.moduleId===id)resetTimer();const plan=termPlan(false);if(plan?.modules)plan.modules=plan.modules.filter(row=>row.localId!==id);if(plan?.tasks)plan.tasks.forEach(task=>{if(task.moduleId===id)task.moduleId=''});persist()}return}id=b.dataset.renameModule;if(id){const m=getM(id);if(m)openNameDialog({title:'Umbenennen · Modul',value:m.name,maxLength:60,onSave:name=>{m.name=name.slice(0,60);const meta=termPlan(false)?.modules?.find(x=>x.localId===m.id)||(m.handbookCode==='8000'?studyRoot().modules?.find(x=>x.localId===m.id):null);if(meta)meta.name=m.name;persist();notify('Modul umbenannt')}});return}id=b.dataset.editModule;if(id){const m=getM(id);if(m)openNameDialog({title:'Wochenziel bearbeiten',label:'Wochenziel in Stunden',value:m.goal,submit:'Speichern',type:'number',min:0,max:168,onSave:value=>{m.goal=Number(value);persist()}})}});
 let timer={running:false,elapsed:0,start:null,moduleId:null,topicId:null};
 // Session recovery does not expose private data to the public view.
 const TIMER_SESSION='studytracker_timer_v3_session';
@@ -151,7 +164,7 @@ function drawModuleDetail(){
  const previous=selectedDetailId||picker.value;picker.innerHTML=termModules().map(m=>`<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
  selectedDetailId=termModules().some(m=>m.id===previous)?previous:termModules()[0]?.id||'';picker.value=selectedDetailId;
  const m=detailModule(),area=$('moduleDetail');if(!m){area.innerHTML='<div class="empty">Bitte zunächst ein Modul anlegen.</div>';return}
- const meta=termPlan(false)?.modules?.find(x=>x.localId===m.id);
+ const meta=termPlan(false)?.modules?.find(x=>x.localId===m.id)||(m.handbookCode==='8000'?db.study?.modules?.find(x=>x.localId===m.id):null);
  const learn=db.entries.filter(x=>x.moduleId===m.id),minutes=sum(learn);
  const topics=db.topics.filter(t=>t.moduleId===m.id),roots=topics.filter(t=>!t.parentId||!topics.some(p=>p.id===t.parentId));
  const tasks=(termPlan(false)?.tasks||[]).filter(t=>t.moduleId===m.id&&(!t.done||t.kind==='exam')).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,7);
@@ -159,7 +172,7 @@ function drawModuleDetail(){
  const topicMarkup=t=>`<div class="detail-topic ${t.parentId?'detail-child':''}"><div class="topic-top"><div><strong>${esc(t.name)}</strong><div class="small muted">${hr(sum(learn.filter(e=>e.topicId===t.id)))} · ${['Nicht begonnen','Unsicher','In Bearbeitung','Gut verstanden','Sicher'][t.mastery||0]}</div></div><div class="detail-actions"><button type="button" class="icon-button" data-detail-edit-topic="${esc(t.id)}">Bearbeiten</button><button type="button" class="icon-button" data-detail-add-child="${esc(t.id)}">+ Unterthema</button></div></div></div>`;
  const ownSemesterFields=activeTermId()===LEGACY_TERM?'':`<div class="field"><label>ECTS</label><input type="number" name="ects" min="0" max="40" step="0.5" required value="${Number(meta?.ects)||0}"></div><div class="field"><label>Geplante Präsenzstunden</label><input type="number" name="presence" min="0" max="1000" step="0.5" required value="${Number(meta?.presence)||0}"></div>`;
  area.innerHTML=`<div class="detail-grid"><div class="detail-card"><span class="muted small">ECTS</span><strong>${meta?.ects??'–'}</strong></div><div class="detail-card"><span class="muted small">Selbststudium Ist / Soll</span><strong>${hr(minutes)} / ${meta?.self??'–'} h</strong></div><div class="detail-card"><span class="muted small">Themen sicher</span><strong>${mastered} / ${topics.length}</strong></div><div class="detail-card"><span class="muted small">Offene Termine</span><strong>${tasks.length}</strong></div></div>
- <form id="detailEditForm" class="detail-form"><div class="field"><label>Modulname</label><input name="name" maxlength="80" required value="${esc(m.name)}"></div><div class="field"><label>Wochenziel (h)</label><input type="number" name="goal" min="0" max="168" step=".5" required value="${Number(m.goal)||0}"></div>${ownSemesterFields}<div class="field"><label>Farbe</label><input type="color" name="color" value="${esc(m.color)}"></div><div class="field wide"><label>Moodle-Kurslink (https://...)</label><input name="moodle" type="url" placeholder="https://moodle.hochschule.de/course/view.php?id=..." value="${esc(m.moodle||'')}"></div><div class="field wide"><label>Modulbeschreibung (frei bearbeitbar)</label><textarea name="description" rows="2" maxlength="1200">${esc(m.description||'')}</textarea></div><div class="buttons wide"><button type="submit" class="primary">Modul speichern</button>${safeMoodle(m.moodle||'')?`<a class="secondary detail-link" href="${esc(safeMoodle(m.moodle))}" target="_blank" rel="noopener noreferrer">Moodle-Kurs öffnen ↗</a>`:''}</div></form>
+ <form id="detailEditForm" class="detail-form"><div class="field"><label>Modulname</label><input name="name" maxlength="80" required value="${esc(m.name)}"></div><div class="field"><label>Wochenziel (h)</label><input type="number" name="goal" min="0" max="168" step=".5" required value="${Number(m.goal)||0}"></div>${ownSemesterFields}<div class="field"><label>Farbe</label><input type="color" name="color" value="${safeColor(m.color)}"></div><div class="field wide"><label>Moodle-Kurslink (https://...)</label><input name="moodle" type="url" placeholder="https://moodle.hochschule.de/course/view.php?id=..." value="${esc(m.moodle||'')}"></div><div class="field wide"><label>Modulbeschreibung (frei bearbeitbar)</label><textarea name="description" rows="2" maxlength="1200">${esc(m.description||'')}</textarea></div><div class="buttons wide"><button type="submit" class="primary">Modul speichern</button>${safeMoodle(m.moodle||'')?`<a class="secondary detail-link" href="${esc(safeMoodle(m.moodle))}" target="_blank" rel="noopener noreferrer">Moodle-Kurs öffnen ↗</a>`:''}</div></form>
  <div class="detail-section"><div class="title-row"><h2>Themen & Unterthemen</h2><button type="button" class="secondary" data-detail-add-root="${esc(m.id)}">+ Hauptthema</button></div><div class="scroll-section" tabindex="0" aria-label="Themen und Unterthemen scrollen">${roots.length?roots.map(t=>topicMarkup(t)+topics.filter(c=>c.parentId===t.id).map(topicMarkup).join('')).join(''):'<div class="empty">Noch keine Themen. Du kannst Themen aus dem Modulhandbuch ergänzen.</div>'}</div><div class="buttons"><button type="button" class="secondary" data-seed-single="${esc(m.id)}">Fehlende Handbuch-Themen ergänzen</button></div></div>
  <div class="detail-section"><h2>Termine & Aufgaben</h2>${tasks.length?tasks.map(t=>`<p class="sub">${esc(t.date)} · ${esc(t.title)} (${esc(t.kind)})</p>`).join(''):'<p class="sub">Keine offenen Aufgaben oder Prüfungen.</p>'}</div>`;
 }
@@ -172,12 +185,18 @@ $('detailModule').addEventListener('change',e=>{selectedDetailId=e.target.value;
 document.addEventListener('submit',e=>{if(e.target.id!=='detailEditForm')return;e.preventDefault();const m=detailModule(),d=new FormData(e.target);if(!m)return;const name=String(d.get('name')||'').trim(),moodle=String(d.get('moodle')||'').trim();if(!name)return;if(moodle&&!safeMoodle(moodle))return alert('Bitte einen gültigen http(s)-Link eintragen.');m.name=name;const planModule=termPlan(false)?.modules?.find(x=>x.localId===m.id);if(planModule){if(activeTermId()!==LEGACY_TERM){const ects=Number(d.get('ects')),presence=Number(d.get('presence'));if(!Number.isFinite(ects)||!Number.isFinite(presence)||ects<0||ects>40||presence<0||presence>ects*25)return alert('Präsenzstunden müssen zwischen 0 und ECTS × 25 liegen.');planModule.ects=ects;planModule.total=ects*25;planModule.presence=presence;planModule.self=Math.max(0,ects*25-presence)}planModule.name=name}m.goal=Number(d.get('goal'));m.color=String(d.get('color'));m.moodle=moodle;m.description=String(d.get('description')||'').slice(0,1200);persist();notify('Modul gespeichert')});
 document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;const id=b.dataset.seedSingle;if(id){const count=seedTopics(id);persist();notify(count+' Handbuch-Themen ergänzt');return}const edit=b.dataset.detailEditTopic;if(edit){const t=getT(edit);if(!t)return;openNameDialog({title:'Umbenennen · Thema',value:t.name,maxLength:100,onSave:name=>{t.name=name.slice(0,100);persist();notify('Thema aktualisiert')}});return}const root=b.dataset.detailAddRoot,child=b.dataset.detailAddChild;if(root||child){const mid=root||getT(child)?.moduleId;if(!mid)return;openNameDialog({title:child?'Unterthema hinzufügen':'Hauptthema hinzufügen',label:'Name',submit:'Hinzufügen',maxLength:100,onSave:name=>{db.topics.push({id:uid(),moduleId:mid,name:name.slice(0,100),parentId:child||'',mastery:0});persist();notify('Thema ergänzt')}});return}});
 
-// StudyTracker 1.2: owner-only Railway sync. Do not store the login password.
+// Automatic revision-aware Preview sync. Never overwrite diverging local and cloud edits.
 const API='https://studytracker-api-production-7134.up.railway.app';
-let cloudToken=sessionStorage.getItem('studytracker_cloud_token')||'';
-let cloudRevision=null,cloudBaseline=null,cloudActive=false,cloudBusy=false,cloudTimer=null;
+const TOKEN_KEY='studytracker_cloud_token';
+const CHECKPOINT_KEY='studytracker_live_last_synced_snapshot_v1';
+let cloudToken=sessionStorage.getItem(TOKEN_KEY)||'';
+let cloudRevision=null,cloudBaseline=null,cloudActive=false,cloudBusy=false,cloudTimer=null,cloudConflict=false;
 const snapshot=()=>JSON.stringify({modules:db.modules,topics:db.topics,entries:db.entries,study:db.study||null});
-const cloudStatus=(s)=>{$('cloudStatus').textContent=s};
+const cloudStatus=s=>{
+ $('cloudStatus').textContent=s;
+ const indicator=$('studySyncIndicator');
+ if(indicator)indicator.textContent=s.includes('✓')?'Cloud ✓':cloudConflict||s.includes('Konflikt')||s.includes('Abgleich')?'Abgleich nötig':s.includes('Offline')?'Offline gespeichert':cloudToken?'Cloud wird geprüft':'Nur lokal';
+};
 function cloudView(){
  $('cloudActions').classList.toggle('hidden',!cloudToken);
  $('cloudLogout').classList.toggle('hidden',!cloudToken);
@@ -188,85 +207,196 @@ function cloudView(){
  $('cloudSyncNow').disabled=!cloudActive||cloudBusy;
 }
 async function cloudRequest(path,method='GET',body){
- const c=new AbortController();const timer=setTimeout(()=>c.abort(),12000);
+ const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),16000);
  try{
- const r=await fetch(API+path,{method,headers:{'Content-Type':'application/json',...(cloudToken?{'Authorization':'Bearer '+cloudToken}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:c.signal});
- const result=await r.json().catch(()=>({}));
- if(!r.ok){const desc=typeof result.detail==='string'?result.detail:'HTTP '+r.status;const err=new Error(desc);err.status=r.status;throw err}
- return result;
- }finally{clearTimeout(timer)}
+  const response=await fetch(API+path,{method,headers:{'Content-Type':'application/json',...(cloudToken?{'Authorization':'Bearer '+cloudToken}:{})},
+   ...(body?{body:JSON.stringify(body)}:{}),signal:controller.signal,cache:'no-store'});
+  const value=await response.json().catch(()=>({}));
+  if(!response.ok){const e=new Error(typeof value.detail==='string'?value.detail:'HTTP '+response.status);e.status=response.status;throw e}
+  return value;
+ }finally{clearTimeout(timeout)}
+}
+function normalizedRemote(value){
+ const data=value?.data;
+ if(!Array.isArray(data?.modules)||!Array.isArray(data?.topics)||!Array.isArray(data?.entries))throw Error('Unerwartetes Cloud-Datenformat');
+ return JSON.stringify({modules:data.modules,topics:data.topics,entries:data.entries,study:data.study||null});
+}
+function cloudCommit(revision,baseline){
+ cloudRevision=revision;cloudBaseline=baseline;cloudActive=true;cloudConflict=false;
+ try{localStorage.setItem(CHECKPOINT_KEY,baseline)}catch(e){cloudStatus('Cloud aktuell; lokaler Synchronisationsmarker konnte nicht gespeichert werden.')}
+}
+function cloudPause(message){
+ cloudActive=false;cloudConflict=true;clearTimeout(cloudTimer);
+ cloudStatus(message+' Nichts überschrieben. Bitte zuerst JSON sichern und unter Daten & Einstellungen einmalig die richtige Datenversion wählen.');
+ cloudView();
+}
+function cloudExpire(){
+ cloudToken='';cloudRevision=null;cloudActive=false;cloudConflict=false;
+ sessionStorage.removeItem(TOKEN_KEY);
+ document.dispatchEvent(new CustomEvent('st-cloud-credentials',{detail:{token:null}}));
+ accessGate(false);
+ cloudStatus('Anmeldung abgelaufen. Bitte erneut anmelden; lokale Daten bleiben erhalten.');cloudView();
+}
+function cloudApply(remote,revision){
+ if(timer.running)throw Error('Laufender Lerntimer: Cloud-Laden bis zum Abschluss des Timers verschoben');
+ const parsed=JSON.parse(remote);
+ localStorage.setItem(KEY,remote);
+ db={modules:parsed.modules,topics:parsed.topics,entries:parsed.entries,study:parsed.study||null};
+ cloudCommit(revision,remote);render();
+ cloudStatus('Aktuell ✓ · Cloud-Änderungen automatisch übernommen');
+}
+function cloudEmpty(raw){
+ const value=JSON.parse(raw);
+ if(value.entries.length||value.topics.length||value.modules.length)return false;
+ // Even if no modules exist, preserve practice reports, term metadata and awards.
+ const study=value.study;
+ if(!study)return true;
+ return Object.entries(study).every(([key,item])=>
+  ['modules','events','tasks'].includes(key)&&Array.isArray(item)&&item.length===0);
+}
+async function cloudConnect(){
+ if(!cloudToken||cloudBusy||cloudConflict||!navigator.onLine)return;
+ cloudBusy=true;cloudView();let needsPush=false;
+ try{
+  const tokenAtStart=cloudToken;
+  const before=snapshot(),remote=await cloudRequest('/sync'),server=normalizedRemote(remote);
+  if(cloudToken!==tokenAtStart)return;
+  // A resumed test session is only allowed to reveal editor data after the
+  // server accepts its token. Never unlock the local editor for an expired token.
+  accessGate(true);
+  if(snapshot()!==before){cloudStatus('Während des Ladens wurden lokale Daten geändert. Synchronisierung wird erneut geprüft.');return}
+  const checkpoint=localStorage.getItem(CHECKPOINT_KEY);
+  const freshBrowser=localStorage.getItem(KEY)===null;
+  if(before===server){cloudCommit(remote.revision,before);cloudStatus('Automatisch verbunden ✓ · Daten sind aktuell')}
+  else if(checkpoint!==null&&before===checkpoint){cloudApply(server,remote.revision)}
+  else if(checkpoint!==null&&server===checkpoint){cloudCommit(remote.revision,server);needsPush=true}
+  else if(freshBrowser||cloudEmpty(before)){cloudApply(server,remote.revision)}
+  else if(cloudEmpty(server))cloudPause('Die Test-Cloud enthält noch keine Lernzeiten. Um ein versehentliches Kopieren lokaler Live-Daten zu verhindern, bitte einmalig prüfen, ob du deine lokalen Daten ausdrücklich in die Test-Cloud übernehmen möchtest.');
+  else cloudPause('Einmaliger Abgleich nötig: lokale Daten und Cloud unterscheiden sich.');
+ }catch(e){
+  if(e.status===401)cloudExpire();
+  else cloudStatus('Automatischer Cloud-Abgleich noch nicht möglich: '+e.message+'. Lokale Daten bleiben erhalten.');
+ }finally{
+  cloudBusy=false;cloudView();
+  if(needsPush&&cloudActive)cloudChanged();
+ }
 }
 async function cloudAuth(register){
  if(cloudBusy)return;
  const email=$('cloudEmail').value.trim(),password=$('cloudPassword').value;
- if(!email||password.length<12){alert('Bitte gültige E-Mail und Passwort mit mindestens 12 Zeichen eingeben.');return}
- cloudBusy=true;cloudView();cloudStatus('Verbindung wird geprüft …');
+ if(!email||password.length<12){alert('Bitte E-Mail und Passwort mit mindestens 12 Zeichen eingeben.');return}
+ cloudBusy=true;cloudView();cloudStatus('Anmeldung wird geprüft …');
  try{
- const result=await cloudRequest(register?'/auth/register':'/auth/login','POST',{email,password});
- cloudToken=result.token;sessionStorage.setItem('studytracker_cloud_token',cloudToken);$('cloudPassword').value='';
- cloudActive=false;cloudRevision=null;cloudBaseline=null;
- const remote=await cloudRequest('/sync');cloudRevision=remote.revision;accessGate(true);
- cloudStatus('Angemeldet. Cloud Revision '+remote.revision+'. Bitte wähle Hochladen oder Herunterladen; noch keine automatische Synchronisierung.');
- }catch(e){cloudToken='';sessionStorage.removeItem('studytracker_cloud_token');cloudStatus('Anmeldung fehlgeschlagen: '+e.message)}
- finally{cloudBusy=false;cloudView()}
+  const result=await cloudRequest(register?'/auth/register':'/auth/login','POST',{email,password});
+  cloudToken=result.token;sessionStorage.setItem(TOKEN_KEY,cloudToken);
+  $('cloudPassword').value='';
+  cloudActive=false;cloudRevision=null;cloudBaseline=null;cloudConflict=false;
+  accessGate(true);
+  document.dispatchEvent(new CustomEvent('st-cloud-credentials',{detail:{token:cloudToken}}));
+ }catch(e){
+  cloudToken='';sessionStorage.removeItem(TOKEN_KEY);
+  cloudStatus(e.status===429?'Zu viele Loginversuche. Bitte in 15 Minuten erneut anmelden.':'Anmeldung fehlgeschlagen: '+e.message);
+ }finally{cloudBusy=false;cloudView()}
+ if(cloudToken)await cloudConnect();
 }
 function cloudChanged(){
- if(!cloudActive||!cloudToken)return;
- cloudStatus('Lokale Änderungen – Synchronisierung ausstehend …');clearTimeout(cloudTimer);cloudTimer=setTimeout(()=>cloudPush(false),1200);
+ if(!cloudToken||!cloudActive||cloudConflict)return;
+ if(snapshot()===cloudBaseline)return;
+ clearTimeout(cloudTimer);
+ if(!navigator.onLine){cloudStatus('Offline · Änderungen lokal gesichert; Upload beim nächsten Verbindungsaufbau.');return}
+ cloudStatus('Lokale Änderungen gespeichert · automatischer Cloud-Upload folgt …');
+ cloudTimer=setTimeout(()=>cloudPush(false),1200);
 }
-async function cloudPush(explicit){
- if(cloudBusy||!cloudToken||cloudRevision===null)return;
- if(!explicit&&!cloudActive)return;
- if(!navigator.onLine){cloudStatus('Offline: Änderungen lokal gespeichert. Synchronisierung beim nächsten Verbindungsversuch.');return}
- cloudBusy=true;cloudView();
+async function cloudPush(explicit=false){
+ if(!cloudToken||cloudRevision===null||cloudConflict||(!explicit&&!cloudActive))return;
+ // Another cloud request might still be in flight when the debounced save fires.
+ // Retry instead of silently dropping the pending local change.
+ if(cloudBusy){clearTimeout(cloudTimer);cloudTimer=setTimeout(()=>cloudPush(explicit),1500);return}
+ if(!navigator.onLine){cloudStatus('Offline · lokale Daten bleiben erhalten; späterer Upload geplant.');return}
+ const current=snapshot();
+ if(current===cloudBaseline&&!explicit){cloudStatus('Synchronisiert ✓');return}
+ cloudBusy=true;cloudView();let synced=false;
  try{
-  const current=snapshot();
-  if(cloudActive&&current===cloudBaseline){cloudStatus('Cloud ist aktuell.');return}
-  const r=await cloudRequest('/sync','PUT',{revision:cloudRevision,data:JSON.parse(current)});
-  cloudRevision=r.revision;cloudBaseline=current;cloudActive=true;
-  cloudStatus('Synchronisiert ✓ · Revision '+r.revision+' · '+new Date().toLocaleTimeString('de-DE'));
+  const result=await cloudRequest('/sync','PUT',{revision:cloudRevision,data:JSON.parse(current)});
+  cloudCommit(result.revision,current);synced=true;
+  cloudStatus('Automatisch synchronisiert ✓ · '+new Date().toLocaleTimeString('de-DE'));
  }catch(e){
-  if(e.status===409){cloudActive=false;cloudStatus('Konflikt: Auf Railway liegen neuere Daten. Nichts wurde überschrieben! Bitte zuerst JSON exportieren und danach bewusst Cloud-Daten laden oder lokale Daten zusammenführen.');}
-  else if(e.status===401){cloudActive=false;cloudToken='';sessionStorage.removeItem('studytracker_cloud_token');cloudStatus('Sitzung abgelaufen. Bitte neu anmelden.');}
-  else{cloudStatus('Cloud nicht erreichbar: '+e.message+' · lokale Daten bleiben erhalten.');}
- }finally{cloudBusy=false;cloudView()}
+  if(e.status===409)cloudPause('Synchronisierungskonflikt: Auf einem anderen Gerät wurden Daten verändert.');
+  else if(e.status===401)cloudExpire();
+  else cloudStatus('Cloud momentan nicht erreichbar · Änderungen lokal gesichert. Erneuter Versuch automatisch.');
+ }finally{
+  cloudBusy=false;cloudView();
+  // Retry transport errors only on focus/reconnect/poll, not in a tight loop.
+  if(synced&&cloudActive&&snapshot()!==cloudBaseline)cloudChanged();
+ }
+}
+async function cloudCheck(){
+ if(!cloudToken||cloudBusy||cloudConflict||!navigator.onLine||document.hidden)return;
+ if(!cloudActive){await cloudConnect();return}
+ cloudBusy=true;cloudView();let send=false;
+ try{
+  const before=snapshot(),result=await cloudRequest('/sync'),remote=normalizedRemote(result);
+  if(result.revision!==cloudRevision){
+   if(before===remote){cloudCommit(result.revision,remote);cloudStatus('Cloud ist aktuell ✓')}
+   else if(before===cloudBaseline&&snapshot()===before)cloudApply(remote,result.revision);
+   else cloudPause('Zwei Geräte haben zwischenzeitlich unterschiedliche Änderungen gespeichert.');
+  }else if(before!==cloudBaseline)send=true;
+ }catch(e){
+  if(e.status===401)cloudExpire();
+  else cloudStatus('Cloud-Verbindung unterbrochen · lokale Daten bleiben erhalten. Neuer Versuch folgt.');
+ }finally{cloudBusy=false;cloudView();if(send&&cloudActive)cloudChanged()}
 }
 async function cloudPull(){
  if(cloudBusy||!cloudToken)return;
  if(timerElapsed()>1000){alert('Bitte laufenden Timer zuerst speichern oder zurücksetzen.');return}
- if(!confirm('ACHTUNG: Die lokalen Module, Themen und Lernzeiten werden durch den Cloud-Datenbestand ersetzt. Hast du vorher ein JSON-Backup erstellt?'))return;
+ if(!confirm('Lokale Module, Lernzeiten und ECTS werden durch den Cloud-Stand ersetzt. Bitte vorher ein JSON-Backup exportieren. Fortfahren?'))return;
  cloudBusy=true;cloudView();
  try{
- const old=snapshot();
- const r=await cloudRequest('/sync');
- if(!Array.isArray(r.data?.modules)||!Array.isArray(r.data?.topics)||!Array.isArray(r.data?.entries))throw Error('Unerwartetes Datenformat');
- // Avoid silently losing local changes made while loading.
- if(old!==snapshot())throw Error('Lokale Daten haben sich zwischenzeitlich geändert');
- db={modules:r.data.modules,topics:r.data.topics,entries:r.data.entries,study:r.data.study||null};
- cloudRevision=r.revision;cloudBaseline=snapshot();cloudActive=true;
- localStorage.setItem(KEY,cloudBaseline);render();cloudStatus('Cloud-Daten geladen ✓ · Automatische Synchronisierung aktiv.');
- }catch(e){cloudStatus('Cloud-Laden fehlgeschlagen: '+e.message)}finally{cloudBusy=false;cloudView()}
+  const before=snapshot(),result=await cloudRequest('/sync'),remote=normalizedRemote(result);
+  if(snapshot()!==before)throw Error('Lokale Änderungen während des Ladens erkannt');
+  cloudApply(remote,result.revision);
+ }catch(e){cloudStatus('Cloud-Laden abgebrochen: '+e.message)}finally{cloudBusy=false;cloudView()}
 }
 async function cloudManualUpload(){
- if(!cloudToken||cloudBusy)return;
- if(!confirm('ACHTUNG: Der Cloud-Datenbestand wird durch deine lokalen Daten ersetzt, sofern sich seit dem letzten Abruf nichts geändert hat. Vorher JSON-Backup erstellen! Fortfahren?'))return;
- try{const r=await cloudRequest('/sync');cloudRevision=r.revision;cloudActive=false;await cloudPush(true)}catch(e){cloudStatus('Hochladen abgebrochen: '+e.message)}
+ if(cloudBusy||!cloudToken)return;
+ if(!confirm('Achtung: Dies ersetzt den bisherigen Cloud-Stand durch deine lokalen Daten. Bitte vorher JSON-Backup erstellen. Fortfahren?'))return;
+ cloudBusy=true;cloudView();
+ try{
+  const result=await cloudRequest('/sync');
+  cloudRevision=result.revision;cloudActive=true;cloudConflict=false;
+ }catch(e){cloudStatus('Hochladen abgebrochen: '+e.message);cloudBusy=false;cloudView();return}
+ cloudBusy=false;cloudView();
+ await cloudPush(true);
 }
 $('cloudLogin').addEventListener('click',()=>cloudAuth(false));
 $('cloudRegister').addEventListener('click',()=>cloudAuth(true));
-$('cloudLogout').addEventListener('click',()=>{clearTimeout(cloudTimer);cloudActive=false;cloudToken='';cloudRevision=null;cloudBaseline=null;sessionStorage.removeItem('studytracker_cloud_token');accessGate(false);cloudStatus('Abgemeldet. Lokale Daten bleiben vorhanden.');cloudView()});
+$('cloudLogout').addEventListener('click',async()=>{
+ const previousToken=cloudToken;
+ clearTimeout(cloudTimer);cloudActive=false;cloudConflict=false;cloudToken='';cloudRevision=null;cloudBaseline=null;
+ sessionStorage.removeItem(TOKEN_KEY);
+ document.dispatchEvent(new CustomEvent('st-cloud-credentials',{detail:{token:null}}));
+ accessGate(false);cloudView();
+ const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),6000);
+ let revoked=false;
+ try{
+  if(previousToken){const result=await fetch(API+'/auth/logout',{method:'POST',headers:{Authorization:'Bearer '+previousToken},signal:controller.signal});revoked=result.ok}
+ }catch(e){}finally{clearTimeout(timeout)}
+ cloudStatus(revoked?'Abgemeldet · Serversitzung widerrufen; lokale Daten bleiben erhalten.':'Lokal abgemeldet · Serverwiderruf nicht bestätigt. Daten bleiben lokal erhalten.');
+});
 $('cloudUpload').addEventListener('click',cloudManualUpload);
 $('cloudDownload').addEventListener('click',cloudPull);
-$('cloudSyncNow').addEventListener('click',async()=>{if(!cloudActive)return;try{const r=await cloudRequest('/sync');if(r.revision!==cloudRevision){cloudActive=false;cloudStatus('Konflikt: andere Version in der Cloud. Bitte JSON sichern und Daten bewusst abgleichen.');cloudView();return}await cloudPush(false)}catch(e){cloudStatus('Abruf fehlgeschlagen: '+e.message)}});
-window.addEventListener('online',()=>{if(cloudActive)cloudChanged()});
-// A token remains only during this tab session. Explicit direction choice required after reload.
-if(cloudToken){cloudRequest('/sync').then(r=>{accessGate(true);cloudRevision=r.revision;cloudStatus('Angemeldet – bitte Hochladen oder Herunterladen wählen. Cloud Revision '+r.revision)}).catch(e=>{cloudStatus('Cloud nicht erreichbar: '+e.message);accessGate(false)})}
+$('cloudSyncNow').addEventListener('click',()=>cloudCheck());
+window.addEventListener('online',()=>{if(cloudToken&&!cloudConflict){if(cloudActive)cloudCheck();else cloudConnect()}});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&cloudToken&&!cloudConflict)cloudCheck()});
+window.addEventListener('focus',()=>{if(cloudToken&&!cloudConflict)cloudCheck()});
+setInterval(()=>{if(cloudToken&&!cloudConflict)cloudCheck()},45000);
+if(cloudToken)cloudConnect()
 cloudView();
 if('serviceWorker' in navigator && location.protocol==='https:')navigator.serviceWorker.register('./sw.js').catch(()=>{});
 
 
 // StudyTracker 1.3: handbook and plan are bundled source-data; no PDFs are published.
-const HANDBOOK_MODULES=[{"id":"s13_0","name":"Mathematik für Ingenieure 1","ects":6,"total":150,"presence":74,"self":76},{"id":"s13_1","name":"Technische Mechanik 1","ects":6,"total":150,"presence":74,"self":76},{"id":"s13_2","name":"Werkstofftechnik","ects":5,"total":125,"presence":62,"self":63},{"id":"s13_3","name":"Naturwissenschaften 1","ects":5,"total":125,"presence":50,"self":75},{"id":"s13_4","name":"Konstruktion / CAD","ects":6,"total":150,"presence":74,"self":76},{"id":"s13_5","name":"Coaching-Selbstkompetenz","ects":4,"total":100,"presence":50,"self":50}];
+const HANDBOOK_MODULES=[{"id":"s13_0","name":"Mathematik für Ingenieure 1","ects":6,"total":150,"presence":74,"self":76},{"id":"s13_1","name":"Technische Mechanik 1","ects":6,"total":150,"presence":74,"self":76},{"id":"s13_2","name":"Werkstofftechnik","ects":5,"total":125,"presence":62,"self":63},{"id":"s13_3","name":"Naturwissenschaften 1","ects":5,"total":125,"presence":50,"self":75},{"id":"s13_4","name":"Konstruktion / CAD","ects":6,"total":150,"presence":74,"self":76},{"id":"s13_5","name":"Coaching-Selbstkompetenz","ects":4,"total":100,"presence":50,"self":50},{"id":"s13_6","name":"Praxisphase 1","ects":3,"total":75,"presence":10,"self":65}];
 const SCHEDULE=[{"id":"sched_2026-10-09_1545_4_s13_5","date":"2026-10-09","start":"15:45","end":"19:00","name":"Coaching 1","moduleRef":"s13_5","details":"Coaching 1 J. Faßl A1 - 410 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-10-12_0800_0_s13_1","date":"2026-10-12","start":"08:00","end":"13:00","name":"Techn. Mechanik 1","moduleRef":"s13_1","details":"Techn. Mechanik 1 A. Schulte A1 - 418 (WZ) K","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-10-13_0800_1_s13_2","date":"2026-10-13","start":"08:00","end":"11:20","name":"Werkstofftechnik","moduleRef":"s13_2","details":"Werkstofftechnik Prof. Dr. K. Stiebler A1 - 410 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-10-13_1130_1_s13_5","date":"2026-10-13","start":"11:30","end":"15:30","name":"Coaching 1","moduleRef":"s13_5","details":"Coaching 1 J. Faßl A1 - 410 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-10-14_0800_2_s13_0","date":"2026-10-14","start":"08:00","end":"11:20","name":"Mathe 1","moduleRef":"s13_0","details":"Mathe 1 Prof. Dr. L. Eichner A1 - 416 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-10-14_1130_2_s13_0","date":"2026-10-14","start":"11:30","end":"13:00","name":"Übung: Mathe f. Ing. 1","moduleRef":"s13_0","details":"Übung: Mathe f. Ing. 1 J. Schramm A1 - 407 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-10-15_0800_3_s13_2","date":"2026-10-15","start":"08:00","end":"11:20","name":"Werkstofftechnik","moduleRef":"s13_2","details":"Werkstofftechnik Prof. Dr. K. Stiebler A1 - 410 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-10-15_1130_3_s13_3","date":"2026-10-15","start":"11:30","end":"15:30","name":"Naturwiss. 1","moduleRef":"s13_3","details":"Naturwiss. 1 T. Kettner A1 - 228 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-10-16_0950_4_s13_0","date":"2026-10-16","start":"09:50","end":"13:00","name":"Mathe 1","moduleRef":"s13_0","details":"Mathe 1 Prof. Dr. L. Eichner A1 - 416 (WZ) 42","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-10-19_0800_0_s13_1","date":"2026-10-19","start":"08:00","end":"13:00","name":"Techn. Mechanik 1","moduleRef":"s13_1","details":"Techn. Mechanik 1 A. Schulte A1 - 418 (WZ) K","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-10-20_0800_1_s13_2","date":"2026-10-20","start":"08:00","end":"11:20","name":"Werkstofftechnik","moduleRef":"s13_2","details":"Werkstofftechnik Prof. Dr. K. Stiebler A1 - 324 (WZ) KW","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-10-21_0800_2_s13_0","date":"2026-10-21","start":"08:00","end":"11:20","name":"Mathe 1","moduleRef":"s13_0","details":"Mathe 1 Prof. Dr. L. Eichner A1 - 226 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-10-21_1130_2_s13_0","date":"2026-10-21","start":"11:30","end":"13:00","name":"Übung: Mathe f. Ing. 1","moduleRef":"s13_0","details":"Übung: Mathe f. Ing. 1 J. Schramm A1 - 407 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-10-23_0800_4_s13_4","date":"2026-10-23","start":"08:00","end":"17:15","name":"Konstruktion/CAD","moduleRef":"s13_4","details":"Konstruktion/CAD P. Ortmann A1 - 316 - PC-Raum (WZ) 43","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-10-26_0800_0_s13_1","date":"2026-10-26","start":"08:00","end":"13:00","name":"Techn. Mechanik 1","moduleRef":"s13_1","details":"Techn. Mechanik 1 A. Schulte A1 - 418 (WZ) K","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-10-28_0800_2_s13_0","date":"2026-10-28","start":"08:00","end":"11:20","name":"Mathe 1","moduleRef":"s13_0","details":"Mathe 1 Prof. Dr. L. Eichner A1 - 416 (WZ) W","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-10-29_0800_3_s13_2","date":"2026-10-29","start":"08:00","end":"11:20","name":"Werkstofftechnik","moduleRef":"s13_2","details":"Werkstofftechnik Prof. Dr. K. Stiebler A1 - 322 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-10-29_1130_3_s13_3","date":"2026-10-29","start":"11:30","end":"15:30","name":"Naturwiss. 1","moduleRef":"s13_3","details":"Naturwiss. 1 T. Kettner A1 - 228 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-10-30_0800_4_s13_4","date":"2026-10-30","start":"08:00","end":"17:15","name":"Konstruktion/CAD","moduleRef":"s13_4","details":"Konstruktion/CAD P. Ortmann A1 - 316 - PC-Raum (WZ) 44","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-02_0800_0_s13_1","date":"2026-11-02","start":"08:00","end":"13:00","name":"Techn. Mechanik 1","moduleRef":"s13_1","details":"Techn. Mechanik 1 A. Schulte A1 - 418 (WZ) K","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-03_0800_1_s13_2","date":"2026-11-03","start":"08:00","end":"11:20","name":"Werkstofftechnik","moduleRef":"s13_2","details":"Werkstofftechnik Prof. Dr. K. Stiebler A15 - 1.18 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-03_1130_1_s13_5","date":"2026-11-03","start":"11:30","end":"15:30","name":"Coaching 1","moduleRef":"s13_5","details":"Coaching 1 J. Faßl A15 - 1.18 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-04_0800_2_s13_0","date":"2026-11-04","start":"08:00","end":"11:20","name":"Mathe 1","moduleRef":"s13_0","details":"Mathe 1 Prof. Dr. L. Eichner A1 - 416 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-04_1130_2_s13_0","date":"2026-11-04","start":"11:30","end":"13:00","name":"Übung: Mathe f. Ing. 1","moduleRef":"s13_0","details":"Übung: Mathe f. Ing. 1 J. Schramm A1 - 226 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-05_0800_3_s13_0","date":"2026-11-05","start":"08:00","end":"11:20","name":"Mathe 1","moduleRef":"s13_0","details":"Mathe 1 Prof. Dr. L. Eichner A1 - 322 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-05_1130_3_s13_3","date":"2026-11-05","start":"11:30","end":"15:30","name":"Naturwiss. 1","moduleRef":"s13_3","details":"Naturwiss. 1 T. Kettner A1 - 228 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-12_0800_3_s13_0","date":"2026-11-12","start":"08:00","end":"11:20","name":"Mathe 1","moduleRef":"s13_0","details":"Mathe 1 Prof. Dr. L. Eichner A1 - 416 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-12_1130_3_s13_3","date":"2026-11-12","start":"11:30","end":"15:30","name":"Naturwiss. 1","moduleRef":"s13_3","details":"Naturwiss. 1 T. Kettner A1 - 228 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-16_0800_0_s13_1","date":"2026-11-16","start":"08:00","end":"13:00","name":"Techn. Mechanik 1","moduleRef":"s13_1","details":"Techn. Mechanik 1 A. Schulte A1 - 418 (WZ) K","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-17_0800_1_s13_2","date":"2026-11-17","start":"08:00","end":"11:20","name":"Werkstofftechnik","moduleRef":"s13_2","details":"Werkstofftechnik G. Ehrenhaft C11.0.14 (GI) (Gruppe 5)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-18_0800_2_s13_4","date":"2026-11-18","start":"08:00","end":"17:15","name":"Konstruktion/CAD","moduleRef":"s13_4","details":"Konstruktion/CAD P. Ortmann A1 - 321 - PC-Raum (WZ) W","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-19_0800_3_s13_0","date":"2026-11-19","start":"08:00","end":"11:20","name":"Mathe 1","moduleRef":"s13_0","details":"Mathe 1 Prof. Dr. L. Eichner A1 - 322 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-19_1130_3_s13_3","date":"2026-11-19","start":"11:30","end":"15:30","name":"Naturwiss. 1","moduleRef":"s13_3","details":"Naturwiss. 1 T. Kettner A1 - 228 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-20_0800_4_s13_4","date":"2026-11-20","start":"08:00","end":"15:30","name":"Konstruktion/CAD","moduleRef":"s13_4","details":"Konstruktion/CAD P. Ortmann A1 - 316 - PC-Raum (WZ) 47","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-23_0800_0_s13_1","date":"2026-11-23","start":"08:00","end":"13:00","name":"Techn. Mechanik 1","moduleRef":"s13_1","details":"Techn. Mechanik 1 A. Schulte A1 - 418 (WZ) K","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-24_0800_1_s13_2","date":"2026-11-24","start":"08:00","end":"11:20","name":"Werkstofftechnik","moduleRef":"s13_2","details":"Werkstofftechnik Prof. Dr. K. Stiebler A15 - 1.18 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-24_1130_1_s13_5","date":"2026-11-24","start":"11:30","end":"15:30","name":"Coaching 1","moduleRef":"s13_5","details":"Coaching 1 J. Faßl A1 - 410 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-25_0800_2_s13_0","date":"2026-11-25","start":"08:00","end":"11:20","name":"Mathe 1","moduleRef":"s13_0","details":"Mathe 1 Prof. Dr. L. Eichner A1 - 226 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-25_1130_2_s13_0","date":"2026-11-25","start":"11:30","end":"13:00","name":"Übung: Mathe f. Ing. 1","moduleRef":"s13_0","details":"Übung: Mathe f. Ing. 1 J. Schramm A1 - 407 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-26_0800_3_s13_2","date":"2026-11-26","start":"08:00","end":"11:20","name":"Werkstofftechnik","moduleRef":"s13_2","details":"Werkstofftechnik Prof. Dr. K. Stiebler A1 - 322 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-26_1130_3_s13_3","date":"2026-11-26","start":"11:30","end":"15:30","name":"Naturwiss. 1","moduleRef":"s13_3","details":"Naturwiss. 1 T. Kettner A1 - 228 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-27_0800_4_s13_4","date":"2026-11-27","start":"08:00","end":"17:15","name":"Konstruktion/CAD","moduleRef":"s13_4","details":"Konstruktion/CAD P. Ortmann A1 - 321 - PC-Raum (WZ) 48","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-11-30_0800_0_s13_1","date":"2026-11-30","start":"08:00","end":"13:00","name":"Techn. Mechanik 1","moduleRef":"s13_1","details":"Techn. Mechanik 1 A. Schulte A1 - 418 (WZ) K","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-12-01_0800_1_s13_2","date":"2026-12-01","start":"08:00","end":"11:20","name":"Werkstofftechnik","moduleRef":"s13_2","details":"Werkstofftechnik Prof. Dr. K. Stiebler A15 - 1.18 (WZ) KW","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-12-02_0800_2_s13_0","date":"2026-12-02","start":"08:00","end":"11:20","name":"Mathe 1","moduleRef":"s13_0","details":"Mathe 1 Prof. Dr. L. Eichner A1 - 226 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-12-02_1130_2_s13_0","date":"2026-12-02","start":"11:30","end":"13:00","name":"Übung: Mathe f. Ing. 1","moduleRef":"s13_0","details":"Übung: Mathe f. Ing. 1 J. Schramm A1 - 408 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-12-03_0800_3_s13_0","date":"2026-12-03","start":"08:00","end":"11:20","name":"Mathe 1","moduleRef":"s13_0","details":"Mathe 1 Prof. Dr. L. Eichner A1 - 416 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-12-03_1130_3_s13_3","date":"2026-12-03","start":"11:30","end":"15:30","name":"Naturwiss. 1","moduleRef":"s13_3","details":"Naturwiss. 1 T. Kettner A1 - 228 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-12-04_0800_4_s13_4","date":"2026-12-04","start":"08:00","end":"15:30","name":"Konstruktion/CAD","moduleRef":"s13_4","details":"Konstruktion/CAD P. Ortmann A1 - 321 - PC-Raum (WZ) 49","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-12-07_0800_0_s13_1","date":"2026-12-07","start":"08:00","end":"13:00","name":"Techn. Mechanik 1","moduleRef":"s13_1","details":"Techn. Mechanik 1 A. Schulte A1 - 418 (WZ) K","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-12-09_0800_2_s13_0","date":"2026-12-09","start":"08:00","end":"11:20","name":"Mathe 1","moduleRef":"s13_0","details":"Mathe 1 Prof. Dr. L. Eichner A1 - 416 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-12-09_1130_2_s13_0","date":"2026-12-09","start":"11:30","end":"13:00","name":"Übung: Mathe f. Ing. 1","moduleRef":"s13_0","details":"Übung: Mathe f. Ing. 1 J. Schramm A1 - 408 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-12-10_0800_3_s13_2","date":"2026-12-10","start":"08:00","end":"11:20","name":"Werkstofftechnik","moduleRef":"s13_2","details":"Werkstofftechnik Prof. Dr. K. Stiebler A1 - 322 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-12-10_1130_3_s13_3","date":"2026-12-10","start":"11:30","end":"15:30","name":"Naturwiss. 1","moduleRef":"s13_3","details":"Naturwiss. 1 T. Kettner A1 - 228 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-12-14_0800_0_s13_1","date":"2026-12-14","start":"08:00","end":"13:00","name":"Techn. Mechanik 1","moduleRef":"s13_1","details":"Techn. Mechanik 1 A. Schulte A1 - 418 (WZ) K","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-12-15_0800_1_s13_2","date":"2026-12-15","start":"08:00","end":"11:20","name":"Werkstofftechnik","moduleRef":"s13_2","details":"Werkstofftechnik Prof. Dr. K. Stiebler A15 - 1.18 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-12-15_1130_1_s13_5","date":"2026-12-15","start":"11:30","end":"15:30","name":"Coaching 1","moduleRef":"s13_5","details":"Coaching 1 J. Faßl A1 - 416 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-12-16_0800_2_s13_0","date":"2026-12-16","start":"08:00","end":"11:20","name":"Mathe 1","moduleRef":"s13_0","details":"Mathe 1 Prof. Dr. L. Eichner A1 - 416 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-12-16_1130_2_s13_0","date":"2026-12-16","start":"11:30","end":"13:00","name":"Übung: Mathe f. Ing. 1","moduleRef":"s13_0","details":"Übung: Mathe f. Ing. 1 J. Schramm A1 - 408 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-12-17_0800_3_s13_0","date":"2026-12-17","start":"08:00","end":"11:20","name":"Mathe 1","moduleRef":"s13_0","details":"Mathe 1 Prof. Dr. L. Eichner A1 - 416 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-12-17_1130_3_s13_3","date":"2026-12-17","start":"11:30","end":"15:30","name":"Naturwiss. 1","moduleRef":"s13_3","details":"Naturwiss. 1 T. Kettner A1 - 228 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2026-12-18_0800_4_s13_4","date":"2026-12-18","start":"08:00","end":"15:30","name":"Konstruktion/CAD","moduleRef":"s13_4","details":"Konstruktion/CAD P. Ortmann A1 - 316 - PC-Raum (WZ) 51","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-01-04_0800_0_s13_1","date":"2027-01-04","start":"08:00","end":"13:00","name":"Techn. Mechanik 1","moduleRef":"s13_1","details":"Techn. Mechanik 1 A. Schulte A1 - 418 (WZ) K","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-01-05_0800_1_s13_2","date":"2027-01-05","start":"08:00","end":"11:20","name":"Werkstofftechnik","moduleRef":"s13_2","details":"Werkstofftechnik G. Ehrenhaft C11.0.14 (GI) (Gruppe 5) KW","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-01-06_0800_2_s13_0","date":"2027-01-06","start":"08:00","end":"11:20","name":"Mathe 1","moduleRef":"s13_0","details":"Mathe 1 Prof. Dr. L. Eichner A1 - 416 (WZ) W","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-01-06_1130_2_s13_0","date":"2027-01-06","start":"11:30","end":"13:00","name":"Übung: Mathe f. Ing. 1","moduleRef":"s13_0","details":"Übung: Mathe f. Ing. 1 J. Schramm A1 - 407 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-01-07_0800_3_s13_2","date":"2027-01-07","start":"08:00","end":"11:20","name":"Werkstofftechnik","moduleRef":"s13_2","details":"Werkstofftechnik Prof. Dr. K. Stiebler A1 - 322 (WZ) W","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-01-07_1130_3_s13_3","date":"2027-01-07","start":"11:30","end":"15:30","name":"Naturwiss. 1","moduleRef":"s13_3","details":"Naturwiss. 1 T. Kettner A1 - 228 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-01-11_0800_0_s13_1","date":"2027-01-11","start":"08:00","end":"13:00","name":"Techn. Mechanik 1","moduleRef":"s13_1","details":"Techn. Mechanik 1 A. Schulte A1 - 418 (WZ) K","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-01-13_0800_2_s13_0","date":"2027-01-13","start":"08:00","end":"11:20","name":"Mathe 1","moduleRef":"s13_0","details":"Mathe 1 Prof. Dr. L. Eichner A1 - 416 (WZ) W","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-01-13_1130_2_s13_0","date":"2027-01-13","start":"11:30","end":"13:00","name":"Übung: Mathe f. Ing. 1","moduleRef":"s13_0","details":"Übung: Mathe f. Ing. 1 J. Schramm A1 - 407 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-01-13_1400_2_s13_3","date":"2027-01-13","start":"14:00","end":"17:15","name":"Naturwiss. 1","moduleRef":"s13_3","details":"Naturwiss. 1 T. Kettner A1 - 228 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-01-14_0800_3_s13_2","date":"2027-01-14","start":"08:00","end":"11:20","name":"Werkstofftechnik","moduleRef":"s13_2","details":"Werkstofftechnik G. Ehrenhaft C11.0.14 (GI) (Gruppe 5) W","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-01-18_0800_0_s13_1","date":"2027-01-18","start":"08:00","end":"13:00","name":"Techn. Mechanik 1","moduleRef":"s13_1","details":"Techn. Mechanik 1 A. Schulte A1 - 418 (WZ) K","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-01-19_0800_1_s13_2","date":"2027-01-19","start":"08:00","end":"11:20","name":"Werkstofftechnik","moduleRef":"s13_2","details":"Werkstofftechnik Prof. Dr. K. Stiebler A1 - 324 (WZ) KW","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-01-20_0800_2_s13_0","date":"2027-01-20","start":"08:00","end":"11:20","name":"Mathe 1","moduleRef":"s13_0","details":"Mathe 1 Prof. Dr. L. Eichner A1 - 416 (WZ) W","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-01-20_1130_2_s13_0","date":"2027-01-20","start":"11:30","end":"13:00","name":"Übung: Mathe f. Ing. 1","moduleRef":"s13_0","details":"Übung: Mathe f. Ing. 1 J. Schramm A1 - 407 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-01-21_0800_3_s13_0","date":"2027-01-21","start":"08:00","end":"11:20","name":"Mathe 1","moduleRef":"s13_0","details":"Mathe 1 Prof. Dr. L. Eichner A1 - 416 (WZ) W","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-01-21_1130_3_s13_3","date":"2027-01-21","start":"11:30","end":"15:30","name":"Naturwiss. 1","moduleRef":"s13_3","details":"Naturwiss. 1 T. Kettner A1 - 228 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-01-22_0800_4_s13_4","date":"2027-01-22","start":"08:00","end":"15:30","name":"Konstruktion/CAD","moduleRef":"s13_4","details":"Konstruktion/CAD P. Ortmann A1 - 316 - PC-Raum (WZ) 3","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-01-25_0950_0_s13_1","date":"2027-01-25","start":"09:50","end":"11:20","name":"Prüfung: Techn. Mechanik 1","moduleRef":"s13_1","details":"Prüfung: Techn. Mechanik 1 A. Schulte A15 - 1.24 (WZ) K","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-01-26_0950_1_s13_2","date":"2027-01-26","start":"09:50","end":"11:20","name":"Prüfung: Werkstofftechnik","moduleRef":"s13_2","details":"Prüfung: Werkstofftechnik Prof. Dr. K. Stiebler, G. Ehrenhaft A1 - 416 (WZ) KW","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-01-29_0950_4_s13_4","date":"2027-01-29","start":"09:50","end":"11:20","name":"Prüfung: Konstruktion/CAD","moduleRef":"s13_4","details":"Prüfung: Konstruktion/CAD P. Ortmann A1 - 321 - PC-Raum (WZ) 4","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-02-02_1130_1_s13_3","date":"2027-02-02","start":"11:30","end":"13:00","name":"Prüfung: Naturwiss. 1","moduleRef":"s13_3","details":"Prüfung: Naturwiss. 1 T. Kettner A1 - 226 (WZ)","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"},{"id":"sched_2027-02-03_0950_2_s13_0","date":"2027-02-03","start":"09:50","end":"11:20","name":"Prüfung: Mathe 1","moduleRef":"s13_0","details":"Prüfung: Mathe 1 Prof. Dr. L. Eichner A1 - 226 (WZ) W","source":"Stundenplan WS26/27 Gruppe 5 (Plan)"}];
 let semView=new Date(2026,9,1),semSelected='2026-10-15';
 
@@ -289,9 +419,13 @@ function semData(){const plan=termPlan(false);return plan&&Array.isArray(plan.mo
 function semModuleId(ref){const meta=semData()?.modules.find(m=>m.id===ref);return meta?.localId||null}
 function semTime(e){const a=e.start.split(':').map(Number),b=e.end.split(':').map(Number);return (b[0]*60+b[1])-(a[0]*60+a[1])}
 function drawSemester(){
- const study=semData();const rows=study?.modules||(activeTermId()===LEGACY_TERM?HANDBOOK_MODULES:[]);const term=activeTerm();if(!isTermDate(dayKey(semView))){semView=dateOf(term.start);semSelected=term.start}
+ const study=semData();let rows=study?.modules||(activeTermId()===LEGACY_TERM?HANDBOOK_MODULES:[]);
+ // Older imported study plans can omit Praxisphase 1; show it without modifying saved data.
+ if(activeTermId()===LEGACY_TERM&&!rows.some(m=>m.id==='s13_6'))
+  rows=[...rows,HANDBOOK_MODULES.find(m=>m.id==='s13_6')];
+ const term=activeTerm();if(!isTermDate(dayKey(semView))){semView=dateOf(term.start);semSelected=term.start}
  $('semStatus').textContent=study?`${study.events.length} Plantermine · ${rows.length} Studienmodule · ${term.label}.`:(activeTermId()===LEGACY_TERM?`Bereit zum Import: ${SCHEDULE.length} Plantermine und ${HANDBOOK_MODULES.length} Module.`:'Noch kein Stundenplan hinterlegt. Lege Module und Termine für dieses Semester separat an.');
- $('semWork').innerHTML=rows.map(m=>{let mins=sum(termEntries().filter(e=>e.moduleId===(m.localId||semModuleId(m.id))));const remainder=Math.max(0,(Number(m.self)||0)-mins/60);return `<tr><td>${esc(m.name)}</td><td>${m.ects}</td><td>${m.total} h</td><td>${m.presence} h</td><td>${m.self} h</td><td>${hr(mins)}</td><td>${fmt(remainder)} h</td></tr>`}).join('')||'<tr><td colspan="7">Noch keine Module für dieses Semester angelegt.</td></tr>';
+ $('semWork').innerHTML=rows.map(m=>{let mins=sum(termEntries().filter(e=>e.moduleId===(m.localId||semModuleId(m.id))));const remainder=Math.max(0,(Number(m.self)||0)-mins/60);const termCredits=m.id==='s13_5'?'2 (von 4 gesamt)':m.ects;return `<tr><td>${esc(m.name)}</td><td>${termCredits}</td><td>${m.total} h</td><td>${m.presence} h</td><td>${m.self} h</td><td>${hr(mins)}</td><td>${fmt(remainder)} h</td></tr>`}).join('')||'<tr><td colspan="7">Noch keine Module für dieses Semester angelegt.</td></tr>';
  $('semMonth').textContent=semView.toLocaleDateString('de-DE',{month:'long',year:'numeric'});
  const year=semView.getFullYear(),month=semView.getMonth(),first=new Date(year,month,1),offset=(first.getDay()+6)%7;
  let html='';for(let i=0;i<42;i++){let d=new Date(year,month,1-offset+i),date=dayKey(d),events=(study?.events||[]).filter(e=>e.date===date),entries=termEntries().filter(e=>e.date===date),tasks=(study?.tasks||[]).filter(t=>t.date===date),here=d.getMonth()===month,within=isTermDate(date);
@@ -306,10 +440,13 @@ $('semImport').addEventListener('click',()=>{
  if(activeTermId()!==LEGACY_TERM)return;if(!confirm('Module und Stundenplan aus den PDF-Quellen importieren? Vorher ein JSON-Backup exportieren. Bestehende Lernzeiten bleiben bestehen.'))return;
  const existing=semData();let study={modules:HANDBOOK_MODULES.map(m=>({...m,localId:existing?.modules.find(x=>x.id===m.id)?.localId||''})),events:SCHEDULE.map(e=>({...e,kind:existing?.events?.find(x=>x.id===e.id)?.kind||eventKind(e)})),tasks:existing?.tasks||[]};
  for(let i=0;i<study.modules.length;i++){let m=study.modules[i];let old=db.modules.find(x=>x.id===m.localId)||termModules().find(x=>x.name.toLowerCase()===m.name.toLowerCase());
- if(!old){const aliases=[['mathematik','mathe'],['technische mechanik'],['werkstoff'],['naturwissenschaft'],['konstruktion'],['coaching']][i];old=termModules().find(x=>aliases.some(a=>x.name.toLowerCase().includes(a)));}
- if(!old){old={id:uid(),name:m.name,color:colors[i%colors.length],goal:4,semesterId:LEGACY_TERM};db.modules.push(old)}m.localId=old.id;
+ if(!old){const aliases=[['mathematik','mathe'],['technische mechanik'],['werkstoff'],['naturwissenschaft'],['konstruktion'],['coaching'],['praxisphase 1']][i]||[];old=termModules().find(x=>aliases.some(a=>x.name.toLowerCase().includes(a)));}
+ if(!old){old={id:uid(),name:m.name,color:colors[i%colors.length],goal:4,semesterId:LEGACY_TERM};db.modules.push(old)}
+ const officialCodes={s13_0:'1001',s13_1:'1003',s13_2:'1005',s13_3:'1002',s13_4:'2007',s13_5:'8000',s13_6:'1000'};
+ if(!old.handbookCode&&officialCodes[m.id])old.handbookCode=officialCodes[m.id];
+ m.localId=old.id;
  }
- db.study=study;let added=0;for(const m of study.modules)added+=seedTopics(m.localId);persist();notify('Studienplan importiert · '+added+' Themen ergänzt');showTab('semester');
+ db.study={...studyRoot(),...study};let added=0;for(const m of study.modules)added+=seedTopics(m.localId);persist();notify('Studienplan importiert · '+added+' Themen ergänzt');showTab('semester');
 });
 $('semPrev').addEventListener('click',()=>{semView=new Date(semView.getFullYear(),semView.getMonth()-1,1);drawSemester()});
 $('semNext').addEventListener('click',()=>{semView=new Date(semView.getFullYear(),semView.getMonth()+1,1);drawSemester()});
@@ -344,7 +481,7 @@ function plannerRender(){
  let stat=`<div class="statsmini"><div><div class="sub">Selbst gelernt</div><div class="num">${fmt(hrs)} h</div></div><div><div class="sub">Selbststudium-Soll</div><div class="num">${goal?fmt(goal)+' h':'—'}</div></div><div><div class="sub">Zeitanteil Semester (Referenz)</div><div class="num">${fmt(timeProgress*100)} %</div></div></div>`;
  stat+=assigned.length?'<div style="overflow:auto"><table class="sem-table"><thead><tr><th>Modul</th><th>Selbststudium Soll</th><th>zeitanteilig</th><th>Ist gelernt</th><th>Differenz</th></tr></thead><tbody>'+assigned.map(m=>{const actual=sum(termEntries().filter(e=>e.moduleId===m.localId))/60,target=Number(m.self)||0,expected=target*timeProgress;return `<tr><td>${esc(m.name)}</td><td>${fmt(target)} h</td><td>${fmt(expected)} h</td><td>${fmt(actual)} h</td><td>${fmt(actual-expected)} h</td></tr>`}).join('')+'</tbody></table></div>':'<div class="empty">Importiere im Studienplan zuerst die Module aus dem Handbuch.</div>';
  $('planStats').innerHTML=stat;
- $('planOnlineStatus').textContent=navigator.onLine?'Online: lokale Daten verfügbar; Cloud-Status unter Daten & Einstellungen prüfen.':'Offline: neue Einträge werden lokal gespeichert und müssen später synchronisiert werden.';
+ $('planOnlineStatus').textContent=navigator.onLine?'Online: lokale Daten verfügbar; Cloud-Status unter Daten & Einstellungen prüfen.':'Offline: neue Einträge bleiben lokal und werden nach Wiederherstellung der Verbindung automatisch synchronisiert.';
 }
 $('taskDate').value=isTermDate(today())?today():activeTerm().start;
 $('planPrev').addEventListener('click',()=>{plannerOffset--;plannerRender()});$('planNext').addEventListener('click',()=>{plannerOffset++;plannerRender()});$('planToday').addEventListener('click',()=>{plannerOffset=0;plannerRender()});$('taskFilter').addEventListener('change',plannerRender);
