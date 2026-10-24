@@ -1,4 +1,4 @@
-import {setCloudBookmarks} from './pdf-reader.js?v=6';
+import {setCloudBookmarks} from './pdf-reader.js?v=8';
 const API='https://studytracker-api-production-7134.up.railway.app';
 const token=()=>sessionStorage.getItem('studytracker_cloud_token')||'';
 const status=s=>{const el=document.getElementById('stCloudNotesStatus');if(el)el.textContent=s};
