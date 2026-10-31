@@ -85,7 +85,7 @@
    const response=await cloudRequest('/calendar/ical','POST',{url});
    if(serial!==requestSerial)return;
    if(!Array.isArray(response?.events)||response.events.length>2500)throw Error('Ungültige Kalenderantwort.');
-   if(response.events.length===0&&countImported()>0)throw Error('Der Feed enthält derzeit keine Termine. Die bisherigen Einträge bleiben sicherheitshalber erhalten.');
+   if(response.events.length===0||!response.events.some(e=>SEMESTERS.some(t=>e.date>=t.start&&e.date<=t.end)))throw Error('Der Feed enthält keine Termine für deine Studiensemester. Bisherige Einträge bleiben sicherheitshalber erhalten.');
    if(!allowed()||snapshot()!==initial||cloudRevision!==revision||current()?.url!==url){
     lastChecked=0;
     updateView('Während des Abrufs wurden Daten verändert. Der Abgleich wird erneut versucht.');
