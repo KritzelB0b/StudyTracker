@@ -1,0 +1,16 @@
+name: iCal frontend validation
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  ical-browser-logic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check studytracker-app.js
+      - run: node --check studytracker-ical.js
+      - run: node --test tests/ical-integration.test.cjs
